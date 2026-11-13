@@ -9,7 +9,7 @@ from typing import Any
 
 from sqlalchemy import BigInteger, ForeignKey, Index, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infra.db.base import Base
 
@@ -28,6 +28,14 @@ class Order(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     paid_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
+    # 明细与物流：只在详情/售后链路加载，列表页走 group by 统计（避免 N+1）
+    items: Mapped[list["OrderItem"]] = relationship(
+        back_populates="order", cascade="all, delete-orphan", lazy="raise"
+    )
+    shipment: Mapped["Shipment | None"] = relationship(
+        back_populates="order", cascade="all, delete-orphan", uselist=False, lazy="raise"
+    )
+
 
 class OrderItem(Base):
     __tablename__ = "order_items"
@@ -41,6 +49,8 @@ class OrderItem(Base):
     name_snapshot: Mapped[str] = mapped_column(String(200))
     qty: Mapped[int] = mapped_column(default=1)
     unit_price_cents: Mapped[int] = mapped_column(BigInteger)
+
+    order: Mapped["Order"] = relationship(back_populates="items", lazy="raise")
 
 
 class Shipment(Base):
@@ -58,6 +68,8 @@ class Shipment(Base):
     )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+
+    order: Mapped["Order"] = relationship(back_populates="shipment", lazy="raise")
 
 
 class AfterSale(Base):

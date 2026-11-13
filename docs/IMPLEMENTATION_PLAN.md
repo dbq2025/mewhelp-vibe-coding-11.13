@@ -319,7 +319,7 @@ CREATE INDEX idx_messages_session ON messages(session_id, id DESC);
 -- 向量（余弦距离）
 CREATE INDEX idx_kb_chunks_hnsw ON kb_chunks USING hnsw (embedding vector_cosine_ops)
   WITH (m=16, ef_construction=64);
--- 中文全文（P3 引入）：存 jieba 预分词文本，用 simple 配置，避免安装 zhparser
+-- 中文全文（P3 引入）：存字符 bigram 文本（替代 jieba，见 §13 偏差记录），用 simple 配置，避免安装 zhparser
 CREATE INDEX idx_kb_chunks_tsv ON kb_chunks USING gin (to_tsvector('simple', content_seg));
 ```
 
@@ -448,7 +448,7 @@ CREATE INDEX idx_kb_chunks_tsv ON kb_chunks USING gin (to_tsvector('simple', con
 
 ### P3 业务闭环（预计 1.5 天）
 
-**交付**：5 个 tool 全部实现、`sales_agent` ReAct 循环（≤4 步）、`order_flow` 确定性链路、售后建单、转人工、槽位持久化、引用卡片、hybrid 检索（jieba+tsvector）+ rerank。
+**交付**：5 个 tool 全部实现、`sales_agent` ReAct 循环（≤4 步）、`order_flow` 确定性链路、售后建单、转人工、槽位持久化、引用卡片、hybrid 检索（bigram+tsvector）+ rerank。
 
 **验收**
 1. `docs/eval.md` 的 20 条场景脚本逐条通过（人工勾选，附截图或日志）
@@ -500,7 +500,7 @@ CREATE INDEX idx_kb_chunks_tsv ON kb_chunks USING gin (to_tsvector('simple', con
 | Docker daemon 未启动 / 无法启动 | 全阻塞 | P0 第一件事启动 Docker Desktop；若被策略禁用，改用远程托管 PG（需支持 pgvector），并在 README 标注 |
 | Python 3.13 某依赖无 wheel | 装不上 | `uv python install 3.12` 建 3.12 venv，代码不改 |
 | DeepSeek 工具调用返回非法 JSON | 工具链断 | 解析容错（提取首个 JSON 块）+ 一次重试 + 降级到"检索直答" |
-| 中文全文检索需扩展 | hybrid 做不了 | 用 jieba 预分词 + `to_tsvector('simple', ...)`，不装 zhparser |
+| 中文全文检索需扩展 | hybrid 做不了 | 用字符 bigram 预分词 + `to_tsvector('simple', ...)`，不装 zhparser |
 | 上下文膨胀导致成本/延迟上升 | 体验差 | 摘要 + 预算裁剪 + 检索条数自适应 |
 | 提示注入（文档/商品描述藏指令） | 越权或胡说 | 数据与指令分离、工具白名单、参数范围校验、输出后置校验 |
 | 范围蔓延（想加推荐/多模态） | 交付不了 | 严格按 P0-P2 分级，新增需求进"待办池"，不插队 |
@@ -529,3 +529,18 @@ CREATE INDEX idx_kb_chunks_tsv ON kb_chunks USING gin (to_tsvector('simple', con
 阶段：P0 基座 → P1 数据检索 → P2 对话链路 → P3 业务闭环 → P4 质量安全 → P5 体验交付
 每阶段出口：能跑 + 有命令证据 + 指标达标，否则不进入下一阶段
 ```
+
+---
+
+## 13. 偏差记录（实现时与计划的差异，逐条给理由）
+
+| # | 计划 | 实际 | 理由 |
+|---|---|---|---|
+| 1 | P1 分块按固定窗口 + 重叠 | 按二级标题分块，每块带「文档标题 · 小节标题」前缀 | 政策文本天然以小节为语义单元；前缀把标题信息带进向量，"运费谁出"能命中"运费规则 · 运费承担方"。超长小节才退化为滑窗 |
+| 2 | `jieba` 预分词写 `content_seg` | 字符 bigram（自研 `rag/segment.py`） | jieba 只发 sdist，构建期批量删临时文件被当前 Windows 环境的安全策略拦下（`SAFE_DELETE_BULK_CONFIRM_REQUIRED`）。bigram 不依赖词典，中文关键词召回同档，且少一份运行时词典 |
+| 3 | `kb_chunks ≈ 120` | 25 篇文档 → **127 块**（avg 112 字） | 按小节切块后块数自然落在计划区间；块变小但语义更聚焦，检索命中率优先于块长 |
+| 4 | 12 条物流轨迹 | 12 条（覆盖 shipped / delivered / refunding 三类订单） | 只按 shipped+delivered 取只有 10 条；退款中的订单也应有已发货记录，符合业务现实 |
+| 5 | `POST /auth/register` 返回 `{userId, token}` | 返回 `{token, expiresAt, user}` | 与 `/login` 同构，前端少一个分支；`user.id` 已含在 `user` 内 |
+| 6 | 订单详情用 404 表示不存在 | 统一 403 / 2003 | 计划 5.3 已定"越权与不存在同码"；订单号可枚举，404 等于确认存在性 |
+
+---

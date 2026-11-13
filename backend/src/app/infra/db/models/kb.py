@@ -1,7 +1,10 @@
 """知识库：政策原文 → 分块 → 向量。
 
-中文全文检索不装 zhparser（Windows 编译坑），改用 jieba 预分词写入 content_seg，
-再建 `to_tsvector('simple', content_seg)` 的 GIN 索引（计划 5.2）。
+中文全文检索不装 zhparser（Windows 编译坑），改为把中文切成字符 bigram 写入 content_seg
+（见 app/rag/segment.py），再建 `to_tsvector('simple', content_seg)` 的 GIN 索引（计划 5.2）。
+
+原本计划用 jieba，但 jieba 只发 sdist，构建过程会批量删临时文件，
+在当前 Windows 开发环境下被安全策略拦截；bigram 不依赖词典，中文召回效果同档。
 """
 
 from datetime import datetime
@@ -45,7 +48,7 @@ class KbChunk(Base):
             postgresql_with={"m": 16, "ef_construction": 64},
             postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
-        # 关键词检索：content_seg 是 jieba 预分词后的空格分隔文本
+        # 关键词检索：content_seg 是字符 bigram 的空格分隔文本（见 rag/segment.py）
         Index(
             "idx_kb_chunks_tsv",
             text("to_tsvector('simple', content_seg)"),

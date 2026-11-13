@@ -1,8 +1,8 @@
 # API 契约 · ecom-copilot
 
-> 版本：v0.1.0（P0）
+> 版本：v0.2.0（P0 + P1）
 > 本文件是**前后端唯一契约**。改动接口必须先改本文件，再改代码（agent.md §6）。
-> 表内 `状态` 列含义：`已实现` = P0 已可调用；`规划` = 后续阶段实现，字段可提前对齐。
+> 表内 `状态` 列含义：`已实现` = 当前可调用（P0 基础设施 / P1 数据接口）；`规划` = 后续阶段实现，字段已冻结。
 
 ---
 
@@ -104,9 +104,13 @@ GET /api/v1/sessions?limit=20&cursor=<上一页最后一条 id>
 
 | 方法 | 路径 | 状态 | 请求 | 响应 data |
 |---|---|---|---|---|
-| POST | `/api/v1/auth/register` | 规划 | `{phone, password, nickname}` | `{userId, token}` |
-| POST | `/api/v1/auth/login` | 规划 | `{phone, password}` | `{token, expiresAt, user}` |
-| GET | `/api/v1/auth/me` | 规划 | — | `{id, phone(masked), nickname}` |
+| POST | `/api/v1/auth/register` | 已实现 | `{phone, password, nickname}` | `{token, expiresAt, user}`，HTTP 201 |
+| POST | `/api/v1/auth/login` | 已实现 | `{phone, password}` | `{token, expiresAt, user}` |
+| GET | `/api/v1/auth/me` | 已实现 | — | `{id, phone, nickname}` |
+
+`user.phone` 一律脱敏为 `138****0001`；响应里不出现密码散列。
+密码规则：8~20 位，必须同时包含字母与数字（纯数字/纯字母返回 1001）。
+注册成功即登录（直接返回 token），省一次往返。
 
 ### 2.3 会话（P2）
 
@@ -129,18 +133,38 @@ GET /api/v1/sessions?limit=20&cursor=<上一页最后一条 id>
 
 | 方法 | 路径 | 状态 | 说明 |
 |---|---|---|---|
-| GET | `/api/v1/products` | 规划 | `q / category / priceMin / priceMax / sort / limit / cursor` |
-| GET | `/api/v1/products/{id}` | 规划 | 详情；不存在返回 2004（不猜） |
+| GET | `/api/v1/products` | 已实现 | `q / category / brand / priceMin / priceMax / sort / limit / cursor` |
+| GET | `/api/v1/products/{id}` | 已实现 | 详情；不存在返回 2004（不猜） |
+
+- `q` 同时匹配名称、品牌、SKU；`category` 可传类目名或类目 id。
+- `sort`：`recommend`（默认，按 id）/ `price_asc` / `price_desc` / `newest`。
+- 列表只返回 `status='on_sale'`；下架商品仅在按 id 查详情时可见。
+- 商品项字段：`id, sku, name, categoryId, categoryName, brand, priceCents, stock, status, imageUrl`，详情额外返回 `description, attrs`。
 
 ### 2.6 订单与售后（P1/P3）
 
 | 方法 | 路径 | 状态 | 说明 |
 |---|---|---|---|
-| GET | `/api/v1/orders` | 规划 | 我的订单（必须登录） |
-| GET | `/api/v1/orders/{orderNo}?phoneTail=` | 规划 | 详情，带鉴权；越权 2003 |
-| GET | `/api/v1/orders/{orderNo}/shipment` | 规划 | 承运商 + 轨迹；无记录表示未发货 |
-| POST | `/api/v1/after-sales` | 规划 | `{orderNo, type, reason}`，返回工单号 |
-| POST | `/api/v1/handoff` | 规划 | `{sessionId, reason}`，建转人工工单 |
+| GET | `/api/v1/orders` | 已实现 | 我的订单（必须登录，只返回本人） |
+| GET | `/api/v1/orders/{orderNo}?phoneTail=` | 已实现 | 详情，带鉴权；越权 2003 |
+| GET | `/api/v1/orders/{orderNo}/shipment` | 已实现 | 承运商 + 轨迹；`data=null` 表示未发货 |
+| POST | `/api/v1/after-sales` | 规划（P3） | `{orderNo, type, reason}`，返回工单号 |
+| POST | `/api/v1/handoff` | 规划（P3） | `{sessionId, reason}`，建转人工工单 |
+
+**订单访问控制的确定口径**
+
+| 身份 | 查单条件 | 不满足时 |
+|---|---|---|
+| 登录用户 | JWT 有效 **且** `order.user_id == token.sub` | 403 / 2003，落审计 |
+| 游客 | `orderNo + phoneTail（4 位数字）` 同时正确 | 403 / 2003，落审计 |
+| 不存在 | — | 403 / 2003（与越权同码，防单号探测） |
+
+每次拒绝都会写一条 `audit_events`（`actor / action=order.read / target=orderNo / result=denied`）。
+登录用户即使带上正确的 `phoneTail`，也不能查他人订单——尾号只对游客生效。
+
+订单详情字段：`orderNo, status, totalCents, itemCount, createdAt, paidAt, receiverPhoneTail, receiverAddressMasked, items[], shipment|null`。
+`receiverPhoneTail` 只有 4 位，地址为脱敏串，**响应中不出现完整手机号与详细地址**。
+订单状态枚举：`pending_pay / pending_ship / shipped / delivered / refunding / closed`。
 
 ### 2.7 运营（P4）
 
@@ -212,3 +236,4 @@ data: {"messageId":"1024","usage":{"prompt":812,"completion":96},"latencyMs":184
 | 版本 | 阶段 | 内容 |
 |---|---|---|
 | v0.1.0 | P0 | 建立 envelope、错误码、`/health`、`/meta`；其余端点冻结字段待实现 |
+| v0.2.0 | P1 | 实现 `/auth/*`、`/products`、`/orders*`；补订单访问控制口径与字段清单 |

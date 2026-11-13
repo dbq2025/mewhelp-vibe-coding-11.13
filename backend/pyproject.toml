@@ -14,6 +14,7 @@ dependencies = [
     "pgvector>=0.3.6,<1.0",
     "structlog>=24.4,<26.0",
     "pyjwt>=2.10,<3.0",
+    "httpx>=0.28,<1.0",
 ]
 
 [dependency-groups]
@@ -53,7 +54,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S105", "S106"]
-"scripts/**" = ["S311"]
+"scripts/**" = ["S311", "S105"]
 # Alembic 自动生成的迁移不做风格改造，避免每次 autogenerate 都要手工重排
 "alembic/versions/*" = ["E501", "I001", "UP007", "UP035"]
 

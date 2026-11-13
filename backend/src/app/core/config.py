@@ -59,6 +59,17 @@ class Settings(BaseSettings):
     embedding_api_key: str = ""
     embedding_model: str = "BAAI/bge-m3"
     embedding_dim: int = 1024
+    embedding_batch_size: int = 16
+    embedding_concurrency: int = 4
+    embedding_timeout_seconds: float = 20.0
+    embedding_max_retries: int = 3
+
+    # --- RAG 检索（P1 纯向量，P3 加混合检索）---
+    rag_chunk_size: int = 320
+    rag_chunk_overlap: int = 70
+    rag_top_k: int = 5
+    # 余弦距离阈值：超过该值视为不相关，宁可答"没查到"也不硬凑引用（计划 4.3）
+    rag_max_distance: float = 0.45
 
 
 @lru_cache(maxsize=1)
