@@ -1,8 +1,19 @@
-"""账号接口测试：注册、登录、鉴权失败路径。"""
+"""账号接口测试：注册、登录、鉴权失败路径。
+
+测试会真的往库里写用户，所以每个用例结束按手机号回收（见 `_cleanup`），
+否则跑几十次后 users 表会堆一堆测试账号，seed 的行数断言也不再可信。
+"""
 
 import uuid
 
+import pytest
 from httpx import AsyncClient
+from sqlalchemy import delete
+
+from app.infra.db.models.user import User
+from app.infra.db.session import SessionFactory
+
+_created_phones: list[str] = []
 
 
 def _random_phone() -> str:
@@ -10,8 +21,20 @@ def _random_phone() -> str:
     return "139" + str(uuid.uuid4().int)[:8]
 
 
+@pytest.fixture(autouse=True)
+async def _cleanup() -> None:
+    yield
+    if not _created_phones:
+        return
+    async with SessionFactory() as session:
+        await session.execute(delete(User).where(User.phone.in_(_created_phones)))
+        await session.commit()
+    _created_phones.clear()
+
+
 async def test_register_then_me(client: AsyncClient) -> None:
     phone = _random_phone()
+    _created_phones.append(phone)
     response = await client.post(
         "/api/v1/auth/register",
         json={"phone": phone, "password": "Abc123456", "nickname": "新用户"},
@@ -28,6 +51,7 @@ async def test_register_then_me(client: AsyncClient) -> None:
 
 async def test_duplicate_phone_rejected(client: AsyncClient) -> None:
     phone = _random_phone()
+    _created_phones.append(phone)
     payload = {"phone": phone, "password": "Abc123456", "nickname": ""}
     first = await client.post("/api/v1/auth/register", json=payload)
     assert first.status_code == 201
@@ -37,9 +61,11 @@ async def test_duplicate_phone_rejected(client: AsyncClient) -> None:
 
 
 async def test_weak_password_rejected(client: AsyncClient) -> None:
+    phone = _random_phone()
+    _created_phones.append(phone)  # 校验失败不会建号，但登记了也不会有副作用
     response = await client.post(
         "/api/v1/auth/register",
-        json={"phone": _random_phone(), "password": "12345678", "nickname": ""},
+        json={"phone": phone, "password": "12345678", "nickname": ""},
     )
     assert response.status_code == 400
     assert response.json()["code"] == 1001

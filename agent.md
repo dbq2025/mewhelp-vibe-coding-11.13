@@ -163,6 +163,9 @@ api → agent → tools/rag → domain → infra
 
 - 命名：`test_<被测对象>_<场景>_<期望>`，如 `test_get_order_other_user_returns_403`。
 - LLM 在测试中一律 Fake（`tests/fakes/fake_llm.py`），禁止打真实模型；真实模型只用于 `scripts/eval.py`。
+- **写库的用例必须自己回收数据**（注册用户、建订单等）：teardown 按唯一键删除。
+  测试打的是开发库，漏回收会让 `seed.py` 的行数断言失效（P1 实测踩过：14 个测试账号残留）。
+- 只读用例可直接用 seed 数据，`conftest.ensure_seed` 会在空库时自动灌一次。
 - 数据库测试打真实 Postgres（`docker compose` 里的实例或独立测试库），**不允许 mock session**。
 - 断言要具体（断言 `status == 403` 且 `code == 2003`），不允许只 `assert response`。
 - 修 bug 必须先写复现用例，再修，用例保留为回归。
@@ -244,7 +247,7 @@ uv run python scripts/eval.py             # 评测（会调真实模型）
 | 阶段 | 状态 | 出口条件 |
 |---|---|---|
 | P0 基座与契约 | ✅ 已完成（2026-11-13） | 迁移成功 + /health ok + 前端可开 + lint 通过 |
-| P1 数据与检索 | 🟡 代码完成，检索验收待 key（2026-11-13） | seed 幂等 ✅ / 越权 403 ✅ / 检索 top3 ≥ 8/10 待跑 |
+| P1 数据与检索 | ✅ 已完成（2026-11-13） | seed 幂等 3/8/40/30/12 / 越权 403+审计 / kb_chunks 127 维 1024 / 检索 hit@3 10/10 |
 | P2 对话主链路 | 未开始 | 3 轮承接 + 首字 ≤2.5s + 中断重试可用 |
 | P3 业务闭环 | 未开始 | 20 条场景全过 + 工具 ≤4 步 + 建单成功 |
 | P4 质量安全 | 未开始 | 指标达标 + 对抗集通过 |
