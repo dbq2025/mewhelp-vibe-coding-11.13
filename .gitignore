@@ -1,32 +1,78 @@
-# --- Python ---
+# ecom-copilot · 忽略规则
+# 原则：只提交源码、锁文件、迁移、文档与环境模板；依赖、构建产物、本地数据、密钥一律不进版本库
+# 必须提交：backend/uv.lock、frontend/package-lock.json、backend/data/seed/*.json、backend/data/kb/*.md
+
+# --- Python / uv ---
 __pycache__/
 *.py[cod]
+*$py.class
 *.egg-info/
+build/
 .venv/
+venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.tox/
+.nox/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
 
-# --- Node ---
+# --- Node / Vite / Vitest ---
 node_modules/
 dist/
-coverage/
+dist-ssr/
+.vite/
+.vitest/
+*.tsbuildinfo
 *.local
+.eslintcache
+.npm/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+playwright-report/
+test-results/
 
-# --- 环境与密钥 ---
+# --- 环境变量与密钥 ---
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+.secrets/
+secrets/
 
-# --- 工具 ---
-.workbuddy/
+# --- 运行时数据 / 日志 / 临时文件 ---
+*.log
+logs/
+*.db
+*.sqlite
+*.sqlite3
+*.pid
+.cache/
+tmp/
+temp/
+
+# --- Docker 本地覆盖 ---
+docker-compose.override.yml
+
+# --- 编辑器 / 操作系统 ---
 .idea/
 .vscode/*
 !.vscode/extensions.json
+*.swp
+*.swo
+*~
+.history/
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# --- 日志 ---
-*.log
+# --- 本地工具数据（非项目产物）---
+.workbuddy/
