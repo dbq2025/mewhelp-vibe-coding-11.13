@@ -165,6 +165,9 @@ api → agent → tools/rag → domain → infra
 - LLM 在测试中一律 Fake（`tests/fakes/fake_llm.py`），禁止打真实模型；真实模型只用于 `scripts/eval.py`。
 - **写库的用例必须自己回收数据**（注册用户、建订单等）：teardown 按唯一键删除。
   测试打的是开发库，漏回收会让 `seed.py` 的行数断言失效（P1 实测踩过：14 个测试账号残留）。
+- **禁止整表清空式回收**（`delete(Model)` 无 where）：用「测试前后差集」或按 id 精确删。
+  P4 实测踩过两次：① 清会话把开发者的手工会话删了；② 清 `llm_usage` 把刚跑完的评测计量清成 0，
+  看板显示"有成本、没轮次"。会级联删除的子表（messages）不用管，没有外键的子表（llm_usage）必须显式回收。
 - 只读用例可直接用 seed 数据，`conftest.ensure_seed` 会在空库时自动灌一次。
 - 数据库测试打真实 Postgres（`docker compose` 里的实例或独立测试库），**不允许 mock session**。
 - 断言要具体（断言 `status == 403` 且 `code == 2003`），不允许只 `assert response`。
@@ -258,7 +261,7 @@ uv run python scripts/eval.py             # 评测（会调真实模型）
 | P1 数据与检索 | ✅ 已完成（2026-11-13） | seed 幂等 3/8/40/30/12 / 越权 403+审计 / kb_chunks 127 维 1024 / 检索 hit@3 10/10 |
 | P2 对话主链路 | ✅ 已完成（2026-11-13） | 3 轮承接（"第二个多少钱"命中第 2 款）/ TTFT 中位数 1.16s / 中断落 incomplete 可重试 / 刷新历史 6 条完整 / 同会话并发串行（单测覆盖 409） |
 | P3 业务闭环 | ✅ 已完成（2026-11-13） | 20 条场景 21/21 ✅ / 工具 ≤4 步降级 ✅ / 售后二次确认建单 + 幂等 ✅ |
-| P4 质量安全 | 未开始 | 指标达标 + 对抗集通过 |
+| P4 质量安全 | ✅ 已完成（2026-11-13） | 评测 60 条 + 对抗 10 条全部达标；限流 30/min → 429；llm_usage 埋点与 /admin/metrics 上线 |
 | P5 体验交付 | 未开始 | README 5 条命令跑通 |
 
 更新规则：每阶段完成时更新本表并附一行证据（命令 + 结果），不写"大概完成"。
@@ -274,3 +277,37 @@ npm run lint / npm run build      → 0 error / built
 npm run test                      → 3 passed（ChatView 渲染 + 健康状态三态）
 curl localhost:5173/health        → 经 Vite 代理返回后端 JSON（前后端联通）
 ```
+
+P4 证据（2026-11-13）：
+```
+uv run python scripts/eval.py
+  → 意图 59/60 = 0.983（门槛 0.90）
+  → 工具集合精确匹配 59/60 = 0.983（门槛 0.85）
+  → 首字 P50 1.63s / P95 2.36s（门槛 2.5s）；单轮 P50 1.85s / P95 2.80s（门槛 12s）
+  → 单轮成本 ¥0.00086（门槛 ¥0.01）；输入 21870 / 输出 2674 token
+  → 注入 5/5 拦截；越权泄漏 0/5
+  → 事实锚点覆盖率 0.786（9 条为"本来没有数字可说"，人工抽查 8/8 站得住）
+curl 连发 35 次 /api/v1/meta
+  → 前 30 次 200，第 31 次起 429 + Retry-After: 58 + X-RateLimit-Limit: 30
+  → body: {"code":4029,"message":"请求太频繁了，请等几秒再试。…"}
+uv run pytest -q                 → 150 passed
+uv run ruff check . / mypy src   → All checks passed / no issues in 74 files
+npm run lint / test / build      → 0 error / 13 passed / built
+```
+
+---
+
+## 15. 可观测与限流口径（P4 起生效）
+
+1. **限流只有一份实现**：`core/ratelimit.py` 的 `SlidingWindowLimiter` 单例。
+   - HTTP 层按 IP 计（键 = `request.client.host`），中间件在 `trace` 内侧、路由外侧；
+   - 会话层按 session 计（键 = `session:${id}`），在 `agent/guard.py` 里调用同一个单例；
+   - `RATE_LIMIT_PER_MINUTE=0` 表示**整体关闭**。评测/压测必须显式关掉，不要靠伪造 IP 或白名单头。
+2. **429 契约**：`{"code":4029,...}` + `Retry-After`（秒）+ `X-RateLimit-Limit`。前端在 `lib/api.ts` 把秒数拼进提示。
+3. **LLM 计量只在一个地方落库**：`agent/llm.py` 每次 HTTP 调用（含重试失败的那几次）记到
+   `RunContext.llm_calls`，由 `runner._persist` 与助手消息**同事务**写 `llm_usage`。
+   新增模型调用点时不要自己写库，否则计费口径会分叉。
+4. **看板只出聚合值**：`/admin/metrics` 不得出现手机号、订单号、消息正文；新增字段先过这一条。
+   口令为空则端点 404（默认关闭），比较用 `secrets.compare_digest`。
+5. **评测口径就是产品口径**：`scripts/eval.py` 的意图/工具/延迟/成本与 `IMPLEMENTATION_PLAN.md` §7 一致；
+   指标不达标时**改代码或 prompt，不改门槛**。标注集（`backend/data/eval/*.json`）改动必须在提交信息里写理由。

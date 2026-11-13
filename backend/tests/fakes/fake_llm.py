@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import AsyncIterator, Sequence
 from typing import Any
 
@@ -50,6 +51,8 @@ class FakeLlm(LlmClient):
         result_usage = Usage(prompt_tokens=100, completion_tokens=20)
         if usage is not None:
             usage.merge(result_usage)
+        # 与真实客户端一样记账：否则"llm_usage 有没有落库"这类用例测不出真问题
+        self._meter(started=time.perf_counter(), usage=result_usage, ok=True)
         return plan, result_usage
 
     async def stream_text(
@@ -73,6 +76,7 @@ class FakeLlm(LlmClient):
         if usage is not None:
             usage.prompt_tokens = 300
             usage.completion_tokens = len(answer)
+        self._meter(started=time.perf_counter(), usage=usage, ok=True)
 
 
 def plan(**kwargs: Any) -> dict[str, Any]:

@@ -39,9 +39,38 @@ class RunContext:
     # 本轮已执行的工具数：超过 settings.max_tool_steps 就地降级，
     # 而不是让图继续往下走（防"工具链越跑越长"和死循环）
     tool_steps: int = 0
+    # 本轮每一次模型调用的计量，由 runner 统一落 llm_usage 表。
+    # 为什么不直接在 llm.py 里写库：LLM 客户端不该知道数据库长什么样，
+    # 而且一轮里有多次调用（理解 + 生成 + 重试），集中落库才能保证同一事务。
+    llm_calls: list[dict[str, Any]] = field(default_factory=list)
 
 
 _ctx: ContextVar[RunContext | None] = ContextVar("agent_run_context", default=None)
+
+
+def record_llm_call(
+    *,
+    model: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    latency_ms: int,
+    ok: bool,
+    error_code: int | None = None,
+) -> None:
+    """记录一次模型调用。没有运行上下文时静默丢弃（单测直接跑节点、脚本预热等场景）。"""
+    ctx = _ctx.get()
+    if ctx is None:
+        return
+    ctx.llm_calls.append(
+        {
+            "model": model,
+            "prompt_tokens": max(0, prompt_tokens),
+            "completion_tokens": max(0, completion_tokens),
+            "latency_ms": max(0, latency_ms),
+            "ok": ok,
+            "error_code": None if error_code is None else str(error_code),
+        }
+    )
 
 
 @contextmanager

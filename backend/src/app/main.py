@@ -9,11 +9,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.agent.llm import aclose_http_clients
 from app.api.router import api_router
 from app.api.routers import health
 from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
+from app.core.ratelimit import rate_limit_middleware, read_limit_from_config
 from app.core.trace import TRACE_HEADER, trace_middleware
 from app.infra.db.session import dispose_engine
 
@@ -24,10 +26,17 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    logger.info("app_start", env=settings.env, version=settings.app_version)
+    limit, window = read_limit_from_config()
+    logger.info(
+        "app_start",
+        env=settings.env,
+        version=settings.app_version,
+        rateLimit=f"{limit}/{window}s" if limit else "off",
+    )
     try:
         yield
     finally:
+        await aclose_http_clients()
         await dispose_engine()
         logger.info("app_stop")
 
@@ -40,8 +49,12 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # 先加 trace，再加 CORS：Starlette 后加的在最外层，
-    # 这样异常响应也能带上 CORS 头（否则前端只能看到 "网络错误"）。
+    # Starlette 的中间件是"后加的在最外层"。期望的从外到内顺序：
+    #   CORS → trace → 限流 → 路由
+    # trace 必须在限流外侧：429 也要带 traceId（用户报"我被挡了"时能对日志），
+    # 而 traceId 由 trace 中间件生成并塞进 contextvar，限流在它内侧才拿得到。
+    # CORS 放最外：错误响应也要带 CORS 头，否则前端只能看到 "网络错误"。
+    app.middleware("http")(rate_limit_middleware)
     app.middleware("http")(trace_middleware)
     app.add_middleware(
         CORSMiddleware,

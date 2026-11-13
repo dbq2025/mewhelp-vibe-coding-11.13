@@ -9,12 +9,13 @@
 from __future__ import annotations
 
 import re
-import time
-from collections import deque
 from dataclasses import dataclass
 
 from app.agent.slots import _ORDER_NO, _PHONE
 from app.core.config import get_settings
+
+# 会话级限流直接用 HTTP 层那个滑动窗口单例（键加 "session:" 前缀区分维度）
+from app.core.ratelimit import limiter as session_limiter
 
 # 注入模式：中英文常见越权指令。命中即拦截，不做"善意解读"。
 _INJECTION_PATTERNS = [
@@ -25,6 +26,14 @@ _INJECTION_PATTERNS = [
     re.compile(r"打印.{0,4}(你的)?(系统|system)"),
     re.compile(r"重复(你|你的)?.{0,4}(设定|规则|提示词)"),
     re.compile(r"<\|.{0,20}\|>"),
+    # P4 对抗集补的两类：① 骗模型复述系统消息；② 骗模型承诺事实之外的补偿。
+    # 这两个模式刻意写窄（必须同时出现"复述类动词 + 系统消息类名词"），
+    # 否则"帮我复述一下退货规则"这种正常提问会被误拦。
+    re.compile(
+        r"(复述|重复|打印|输出|告诉我).{0,12}(系统消息|系统提示|提示词|你的设定|对话规则|初始设定)"
+    ),
+    re.compile(r"忽略.{0,6}(事实|规则|限制|校验|权限|指令)"),
+    re.compile(r"(保证|承诺).{0,8}(全额赔付|免费送|免费领)"),
 ]
 
 # 明显刷屏：单字符重复 30 次以上
@@ -43,33 +52,11 @@ class GuardResult:
     message: str = ""
 
 
-class RateLimiter:
-    """进程内滑动窗口。单实例部署够用；多实例时应换成 Redis（计划 6.5）。
-
-    键用 session_id 而不是 IP：本项目按会话计费，同一会话刷屏才是真实风险。
-    """
-
-    def __init__(self, limit: int, window_seconds: float = 60.0) -> None:
-        self.limit = limit
-        self.window = window_seconds
-        self._hits: dict[str, deque[float]] = {}
-
-    def hit(self, key: str) -> bool:
-        """返回 True 表示放行。"""
-        now = time.monotonic()
-        bucket = self._hits.setdefault(key, deque())
-        while bucket and now - bucket[0] > self.window:
-            bucket.popleft()
-        if len(bucket) >= self.limit:
-            return False
-        bucket.append(now)
-        return True
-
-    def reset(self, key: str) -> None:
-        self._hits.pop(key, None)
-
-
-_limiter = RateLimiter(get_settings().rate_limit_per_minute)
+# 会话级限流复用 HTTP 层那个滑动窗口（`core.ratelimit.limiter`），只是换了个键前缀。
+# 为什么不再单独实现一份：两套窗口迟早会出现"网关说没超、守卫说超了"的对不上账，
+# 而且 0=关闭 的语义只需要在一个地方定义一次。
+# 为什么会话维度还要限：IP 限流挡的是机器，会话限流挡的是"一个用户把预算烧光"。
+_SESSION_KEY = "session:"
 
 
 def check_input(text: str, *, session_id: str) -> GuardResult:
@@ -94,7 +81,8 @@ def check_input(text: str, *, session_id: str) -> GuardResult:
     if _SPAM.search(stripped):
         return GuardResult(False, "spam", BLOCK_MESSAGE)
 
-    if not _limiter.hit(session_id):
+    allowed, _retry_after = session_limiter.hit(f"{_SESSION_KEY}{session_id}")
+    if not allowed:
         return GuardResult(
             False,
             "rate_limited",

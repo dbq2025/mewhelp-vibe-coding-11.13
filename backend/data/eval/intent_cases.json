@@ -1,0 +1,510 @@
+{
+  "version": 1,
+  "note": "P4 意图/工具标注集。标签口径以 prompts/v1/understand.md 的意图定义为准，工具口径以 docs/api.md / 计划 4.3 的工具表为准。每条单轮、独立会话，避免槽位跨题污染。tools=必须出现的工具；optional=允许出现但不强求（例如订单问题顺带问政策会多调 search_policy）。",
+  "cases": [
+    {
+      "id": "i01",
+      "intent": "product_search",
+      "tools": [
+        "search_products"
+      ],
+      "text": "1000 以内的降噪耳机有哪些"
+    },
+    {
+      "id": "i02",
+      "intent": "product_search",
+      "tools": [
+        "search_products"
+      ],
+      "text": "有没有便宜的充电宝"
+    },
+    {
+      "id": "i03",
+      "intent": "product_search",
+      "tools": [
+        "search_products"
+      ],
+      "text": "推荐一款适合跑步的运动耳机"
+    },
+    {
+      "id": "i04",
+      "intent": "product_search",
+      "tools": [
+        "search_products"
+      ],
+      "text": "我想买个机械键盘，300 块左右的有吗"
+    },
+    {
+      "id": "i05",
+      "intent": "product_search",
+      "tools": [
+        "search_products"
+      ],
+      "text": "帮我找 2000 以内的智能手表"
+    },
+    {
+      "id": "i06",
+      "intent": "product_search",
+      "tools": [
+        "search_products"
+      ],
+      "text": "有没有无线充电的手机壳"
+    },
+    {
+      "id": "i07",
+      "intent": "product_search",
+      "tools": [
+        "search_products"
+      ],
+      "text": "200 元以内的充电器推荐一下"
+    },
+    {
+      "id": "i08",
+      "intent": "product_search",
+      "tools": [
+        "search_products"
+      ],
+      "text": "店里有没有卖数据线的"
+    },
+    {
+      "id": "i09",
+      "intent": "product_search",
+      "tools": [
+        "search_products"
+      ],
+      "text": "预算 500，想买个音质好点的蓝牙音箱"
+    },
+    {
+      "id": "i10",
+      "intent": "product_search",
+      "tools": [
+        "search_products"
+      ],
+      "text": "我要买个头戴耳机，有什么可选"
+    },
+    {
+      "id": "i11",
+      "intent": "product_info",
+      "tools": [
+        "search_products"
+      ],
+      "text": "极光 Buds 3 的续航是多久",
+      "optional": [
+        "get_product",
+        "compare_products"
+      ]
+    },
+    {
+      "id": "i12",
+      "intent": "product_info",
+      "tools": [
+        "search_products"
+      ],
+      "text": "声谷 Air Pro 支持无线充电吗",
+      "optional": [
+        "get_product",
+        "compare_products"
+      ]
+    },
+    {
+      "id": "i13",
+      "intent": "product_info",
+      "tools": [
+        "search_products"
+      ],
+      "text": "云雀 Quiet 2 现在多少钱",
+      "optional": [
+        "get_product",
+        "compare_products"
+      ]
+    },
+    {
+      "id": "i14",
+      "intent": "product_info",
+      "tools": [
+        "search_products"
+      ],
+      "text": "声谷 K68 机械键盘支持热插拔吗",
+      "optional": [
+        "get_product",
+        "compare_products"
+      ]
+    },
+    {
+      "id": "i15",
+      "intent": "product_info",
+      "tools": [
+        "search_products"
+      ],
+      "text": "极光 Watch 2 的防水等级是多少",
+      "optional": [
+        "get_product",
+        "compare_products"
+      ]
+    },
+    {
+      "id": "i16",
+      "intent": "product_info",
+      "tools": [
+        "search_products"
+      ],
+      "text": "云雀 磁吸透明手机壳还有现货吗",
+      "optional": [
+        "get_product",
+        "compare_products"
+      ]
+    },
+    {
+      "id": "i17",
+      "intent": "product_info",
+      "tools": [
+        "search_products"
+      ],
+      "text": "声谷 Cube 便携蓝牙音箱的重量是多少",
+      "optional": [
+        "get_product",
+        "compare_products"
+      ]
+    },
+    {
+      "id": "i18",
+      "intent": "product_info",
+      "tools": [
+        "search_products"
+      ],
+      "text": "极光 Buds 3 和极光 Buds Pro 哪个更值得买",
+      "optional": [
+        "get_product",
+        "compare_products"
+      ]
+    },
+    {
+      "id": "i19",
+      "intent": "product_info",
+      "tools": [
+        "search_products"
+      ],
+      "text": "云雀 Mini 桌面音箱支持两台串联吗",
+      "optional": [
+        "get_product",
+        "compare_products"
+      ]
+    },
+    {
+      "id": "i20",
+      "intent": "order_status",
+      "tools": [
+        "get_order"
+      ],
+      "optional": [
+        "get_shipment"
+      ],
+      "text": "帮我查下订单 20261101001 到哪了"
+    },
+    {
+      "id": "i21",
+      "intent": "order_status",
+      "tools": [
+        "get_order"
+      ],
+      "optional": [
+        "get_shipment"
+      ],
+      "text": "我的订单 20261101008 发货了吗"
+    },
+    {
+      "id": "i22",
+      "intent": "order_status",
+      "tools": [
+        "get_order"
+      ],
+      "text": "订单 20261101005 为什么关闭了",
+      "optional": [
+        "get_shipment"
+      ]
+    },
+    {
+      "id": "i23",
+      "intent": "order_status",
+      "tools": [
+        "get_order"
+      ],
+      "optional": [
+        "get_shipment"
+      ],
+      "text": "20261101001 的物流单号是多少"
+    },
+    {
+      "id": "i24",
+      "intent": "order_status",
+      "tools": [],
+      "text": "我有笔订单还没收到，帮我看看"
+    },
+    {
+      "id": "i25",
+      "intent": "order_status",
+      "tools": [
+        "get_order"
+      ],
+      "optional": [
+        "get_shipment"
+      ],
+      "text": "查一下 20261101008 的物流进度"
+    },
+    {
+      "id": "i26",
+      "intent": "order_status",
+      "tools": [
+        "get_order"
+      ],
+      "text": "订单 20261101001 里面买了哪些东西",
+      "optional": [
+        "get_shipment"
+      ]
+    },
+    {
+      "id": "i27",
+      "intent": "order_status",
+      "tools": [],
+      "text": "前几天买的耳机怎么还没发货"
+    },
+    {
+      "id": "i28",
+      "intent": "order_status",
+      "tools": [
+        "get_order"
+      ],
+      "optional": [
+        "get_shipment"
+      ],
+      "text": "订单 20261101008 今天能送到吗"
+    },
+    {
+      "id": "i29",
+      "intent": "after_sales",
+      "tools": [],
+      "text": "我要退货"
+    },
+    {
+      "id": "i30",
+      "intent": "after_sales",
+      "tools": [
+        "get_order"
+      ],
+      "text": "我要退货，订单 20261101008"
+    },
+    {
+      "id": "i31",
+      "intent": "after_sales",
+      "tools": [
+        "get_order"
+      ],
+      "text": "订单 20261101008 的耳机一边没声音了，想换一个"
+    },
+    {
+      "id": "i32",
+      "intent": "after_sales",
+      "tools": [
+        "get_order"
+      ],
+      "text": "订单 20261101001 我要退款"
+    },
+    {
+      "id": "i33",
+      "intent": "after_sales",
+      "tools": [],
+      "optional": [
+        "search_policy"
+      ],
+      "text": "耳机在保修期内坏了能修吗"
+    },
+    {
+      "id": "i34",
+      "intent": "after_sales",
+      "tools": [
+        "get_order"
+      ],
+      "text": "订单 20261101005 申请退货"
+    },
+    {
+      "id": "i35",
+      "intent": "after_sales",
+      "tools": [
+        "get_order"
+      ],
+      "text": "订单 20261101008 收到的东西有质量问题，要退"
+    },
+    {
+      "id": "i36",
+      "intent": "after_sales",
+      "tools": [],
+      "text": "东西不想要了，能退吗"
+    },
+    {
+      "id": "i37",
+      "intent": "after_sales",
+      "tools": [
+        "get_order"
+      ],
+      "text": "订单 20261101001 我要改成换货"
+    },
+    {
+      "id": "i38",
+      "intent": "policy_faq",
+      "tools": [
+        "search_policy"
+      ],
+      "text": "七天无理由是从签收算还是发货算"
+    },
+    {
+      "id": "i39",
+      "intent": "policy_faq",
+      "tools": [
+        "search_policy"
+      ],
+      "text": "退货运费谁承担"
+    },
+    {
+      "id": "i40",
+      "intent": "policy_faq",
+      "tools": [
+        "search_policy"
+      ],
+      "text": "退款一般多久能到账"
+    },
+    {
+      "id": "i41",
+      "intent": "policy_faq",
+      "tools": [
+        "search_policy"
+      ],
+      "text": "保修政策是怎么规定的"
+    },
+    {
+      "id": "i42",
+      "intent": "policy_faq",
+      "tools": [
+        "search_policy"
+      ],
+      "text": "发票抬头开错了怎么重开"
+    },
+    {
+      "id": "i43",
+      "intent": "policy_faq",
+      "tools": [
+        "search_policy"
+      ],
+      "text": "价保期是几天，降价了怎么补差价"
+    },
+    {
+      "id": "i44",
+      "intent": "policy_faq",
+      "tools": [
+        "search_policy"
+      ],
+      "text": "积分能抵多少钱"
+    },
+    {
+      "id": "i45",
+      "intent": "policy_faq",
+      "tools": [
+        "search_policy"
+      ],
+      "text": "会员等级怎么升级"
+    },
+    {
+      "id": "i46",
+      "intent": "policy_faq",
+      "tools": [
+        "search_policy"
+      ],
+      "text": "支付失败但是已经扣款了怎么办"
+    },
+    {
+      "id": "i47",
+      "intent": "policy_faq",
+      "tools": [
+        "search_policy"
+      ],
+      "text": "可以开增值税专用发票吗"
+    },
+    {
+      "id": "i48",
+      "intent": "chitchat",
+      "tools": [],
+      "text": "你好"
+    },
+    {
+      "id": "i49",
+      "intent": "chitchat",
+      "tools": [],
+      "text": "你是谁"
+    },
+    {
+      "id": "i50",
+      "intent": "chitchat",
+      "tools": [],
+      "text": "谢谢，辛苦了"
+    },
+    {
+      "id": "i51",
+      "intent": "chitchat",
+      "tools": [],
+      "text": "今天天气怎么样"
+    },
+    {
+      "id": "i52",
+      "intent": "chitchat",
+      "tools": [],
+      "text": "讲个笑话吧"
+    },
+    {
+      "id": "i53",
+      "intent": "chitchat",
+      "tools": [],
+      "text": "你多大了"
+    },
+    {
+      "id": "i54",
+      "intent": "chitchat",
+      "tools": [],
+      "text": "帮我写一段 Python 冒泡排序"
+    },
+    {
+      "id": "i55",
+      "intent": "handoff",
+      "tools": [],
+      "text": "我要人工客服"
+    },
+    {
+      "id": "i56",
+      "intent": "handoff",
+      "tools": [],
+      "text": "转人工"
+    },
+    {
+      "id": "i57",
+      "intent": "handoff",
+      "tools": [],
+      "text": "帮我转接人工客服，我要问退款的事"
+    },
+    {
+      "id": "i58",
+      "intent": "handoff",
+      "tools": [],
+      "text": "我要投诉，东西太差了"
+    },
+    {
+      "id": "i59",
+      "intent": "handoff",
+      "tools": [],
+      "text": "找个人跟我说话，机器人听不懂"
+    },
+    {
+      "id": "i60",
+      "intent": "handoff",
+      "tools": [],
+      "text": "我要投诉你们的物流"
+    }
+  ]
+}

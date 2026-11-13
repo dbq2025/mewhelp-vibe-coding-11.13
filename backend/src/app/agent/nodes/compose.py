@@ -24,7 +24,8 @@ logger = get_logger(__name__)
 def _facts_block(facts: list[dict[str, Any]]) -> str:
     if not facts:
         return "（本轮没有调用查询工具，没有可引用的事实）"
-    return json.dumps(facts, ensure_ascii=False)[:2000]
+    # 1500 字符 ≈ 400 token：5 条商品的精简字段够用；再多就是拿首字延迟换冗余信息
+    return json.dumps(facts, ensure_ascii=False)[:1500]
 
 
 def _citations_block(citations: list[dict[str, Any]]) -> str:

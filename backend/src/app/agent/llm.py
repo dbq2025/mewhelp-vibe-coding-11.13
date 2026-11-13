@@ -13,12 +13,15 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
+import time
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
 
 import httpx
 
+from app.agent.runtime import record_llm_call
 from app.core.config import get_settings
 from app.core.errors import CODE_LLM_TIMEOUT, CODE_UPSTREAM_RATE_LIMIT, AppError
 from app.core.logging import get_logger
@@ -104,6 +107,29 @@ class LlmClient:
     async def _backoff(self, attempt: int) -> None:
         await asyncio.sleep(0.5 * (3**attempt))
 
+    def _meter(
+        self,
+        *,
+        started: float,
+        usage: Usage | None,
+        ok: bool,
+        error_code: int | None = None,
+    ) -> None:
+        """把一次调用交给运行上下文记账（P4 llm_usage）。
+
+        计量口径是"一次 HTTP 调用"，包含被重试的那几次失败尝试——
+        失败尝试通常没有 usage（上游没走到计费），所以记 0 token 但 `ok=false`，
+        这样"错误率"和"成本"两个指标各看各的字段，不会被互相污染。
+        """
+        record_llm_call(
+            model=self.model,
+            prompt_tokens=usage.prompt_tokens if usage else 0,
+            completion_tokens=usage.completion_tokens if usage else 0,
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            ok=ok,
+            error_code=error_code,
+        )
+
     # ------------------------------------------------------------------ JSON
     async def complete_json(
         self,
@@ -130,13 +156,13 @@ class LlmClient:
         )
         last_error: AppError | None = None
         for attempt in range(self.max_retries + 1):
+            started = time.perf_counter()
             try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    response = await client.post(
-                        f"{self.base_url.rstrip('/')}/chat/completions",
-                        headers=self._headers(),
-                        json=payload,
-                    )
+                response = await http_client().post(
+                    f"{self.base_url.rstrip('/')}/chat/completions",
+                    headers=self._headers(),
+                    json=payload,
+                )
                 if response.status_code >= 400:
                     raise self._map_http_error(response.status_code, response.text)
                 data = response.json()
@@ -148,16 +174,24 @@ class LlmClient:
                 )
                 if usage is not None:
                     usage.merge(result_usage)
+                self._meter(started=started, usage=result_usage, ok=True)
                 return parsed, result_usage
+            except AppError as exc:
+                # 上游明确拒绝（限流/鉴权）：重试也没用，直接抛；但要留一次失败计量
+                self._meter(started=started, usage=None, ok=False, error_code=exc.code)
+                raise
             except httpx.TimeoutException as exc:
                 last_error = AppError(CODE_LLM_TIMEOUT, "模型响应超时，已自动重试", 504)
+                self._meter(started=started, usage=None, ok=False, error_code=CODE_LLM_TIMEOUT)
                 logger.warning("llm_timeout", attempt=attempt, error=repr(exc))
             except httpx.HTTPError as exc:
                 last_error = AppError(5000, "模型服务连接失败", 502)
+                self._meter(started=started, usage=None, ok=False, error_code=5000)
                 logger.warning("llm_transport_error", attempt=attempt, error=repr(exc))
             except (KeyError, ValueError, TypeError) as exc:
                 # 模型返回了非法 JSON：重试一次通常就好了，不重试会把一次抖动放大成用户可见错误
                 last_error = AppError(5000, "模型输出格式异常", 502)
+                self._meter(started=started, usage=None, ok=False, error_code=5000)
                 logger.warning("llm_bad_json", attempt=attempt, error=repr(exc))
             if attempt < self.max_retries:
                 await self._backoff(attempt)
@@ -188,6 +222,7 @@ class LlmClient:
         emitted = False
         last_error: AppError | None = None
         for attempt in range(self.max_retries + 1):
+            started = time.perf_counter()
             try:
                 async for delta in self._stream_once(payload):
                     if delta.usage is not None and usage is not None:
@@ -196,20 +231,25 @@ class LlmClient:
                         emitted = True
                         yield delta.text
                     if delta.done:
+                        self._meter(started=started, usage=usage, ok=True)
                         return
+                self._meter(started=started, usage=usage, ok=True)
                 return
             except AppError as exc:
                 last_error = exc
+                self._meter(started=started, usage=usage, ok=False, error_code=exc.code)
                 if emitted:
                     # 已经流出去的内容收不回来，交给上层按"不完整"落库
                     raise
             except httpx.TimeoutException as exc:
                 last_error = AppError(CODE_LLM_TIMEOUT, "模型响应超时", 504)
+                self._meter(started=started, usage=usage, ok=False, error_code=CODE_LLM_TIMEOUT)
                 logger.warning("llm_stream_timeout", attempt=attempt, error=repr(exc))
                 if emitted:
                     raise last_error from exc
             except httpx.HTTPError as exc:
                 last_error = AppError(5000, "模型服务连接中断", 502)
+                self._meter(started=started, usage=usage, ok=False, error_code=5000)
                 logger.warning("llm_stream_transport", attempt=attempt, error=repr(exc))
                 if emitted:
                     raise last_error from exc
@@ -218,15 +258,12 @@ class LlmClient:
         raise last_error or AppError(5000, "模型服务异常", 502)
 
     async def _stream_once(self, payload: dict[str, object]) -> AsyncIterator[_Delta]:
-        async with (
-            httpx.AsyncClient(timeout=self.timeout) as client,
-            client.stream(
-                "POST",
-                f"{self.base_url.rstrip('/')}/chat/completions",
-                headers=self._headers(),
-                json=payload,
-            ) as response,
-        ):
+        async with http_client().stream(
+            "POST",
+            f"{self.base_url.rstrip('/')}/chat/completions",
+            headers=self._headers(),
+            json=payload,
+        ) as response:
             if response.status_code >= 400:
                 body = (await response.aread()).decode("utf-8", "ignore")
                 raise self._map_http_error(response.status_code, body)
@@ -281,6 +318,34 @@ def _loads_json_object(content: str) -> dict[str, object]:
 
 
 _client: LlmClient | None = None
+
+# 连接池复用（P4 延迟优化）：一轮对话要打两次模型（理解 + 生成），
+# 每次新建 AsyncClient 都要重新握手 + TLS 协商，实测白扔 100~250ms，
+# 而首字延迟预算只有 2.5s。按事件循环缓存客户端：测试会一个用例一个 loop，
+# 用 loop 隔离比全局单例安全（否则会拿到绑在已关闭 loop 上的客户端）。
+_http_clients: dict[int, httpx.AsyncClient] = {}
+
+
+def http_client() -> httpx.AsyncClient:
+    loop = asyncio.get_running_loop()
+    key = id(loop)
+    client = _http_clients.get(key)
+    if client is None or client.is_closed:
+        client = httpx.AsyncClient(
+            timeout=get_settings().llm_timeout_seconds,
+            limits=httpx.Limits(max_keepalive_connections=8, max_connections=20),
+        )
+        _http_clients[key] = client
+    return client
+
+
+async def aclose_http_clients() -> None:
+    """应用关闭时调用，避免 keep-alive 连接悬着。"""
+    for key, client in list(_http_clients.items()):
+        # 关闭阶段失败不影响退出：可能已经因为落库异常提前关闭
+        with contextlib.suppress(Exception):
+            await client.aclose()
+        _http_clients.pop(key, None)
 
 
 def get_llm_client() -> LlmClient:

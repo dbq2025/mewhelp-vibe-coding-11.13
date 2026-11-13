@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import importlib.util
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from types import ModuleType
 
@@ -19,6 +19,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 
+from app.core.ratelimit import limiter
 from app.infra.db.models.catalog import Product
 from app.infra.db.session import SessionFactory, dispose_engine
 from app.main import app
@@ -41,6 +42,21 @@ def _load_seed_module() -> ModuleType:
 async def _dispose_engine_after_test() -> AsyncIterator[None]:
     yield
     await dispose_engine()
+
+
+@pytest.fixture(autouse=True)
+def _disable_rate_limit() -> Iterator[None]:
+    """测试默认关限流。
+
+    原因：整个测试套件在一分钟内会发上百个请求，全都来自同一个"IP"，
+    真按 30/分钟 限流会把无关用例打成 429，排查成本极高。
+    `tests/api/test_rate_limit.py` 里会显式打开并验证 429 行为。
+    """
+    limiter.configure(limit=0, window_seconds=60.0)
+    yield
+    limiter.configure(limit=0, window_seconds=60.0)
+    limiter.stats.total = 0
+    limiter.stats.recent.clear()
 
 
 @pytest.fixture(autouse=True)

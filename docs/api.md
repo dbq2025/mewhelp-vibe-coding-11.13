@@ -223,11 +223,36 @@ GET /api/v1/sessions?limit=20&cursor=<上一页最后一条 id>
 同一会话只允许一张未完结单（`uk_handoff_open_per_session`），重复调用返回已有单。
 状态机：`pending → accepted → closed`，也允许 `pending → closed`；回退与原地跳转一律 **400 / 1001**。
 
-### 2.7 运营（P4）
+### 2.7 运营（P4 已实现）
 
 | 方法 | 路径 | 状态 | 说明 |
 |---|---|---|---|
-| GET | `/api/v1/admin/metrics` | 规划 | 会话数 / 意图分布 / P95 延迟 / 成本 / 工具失败率 |
+| GET | `/api/v1/admin/metrics` | 实现 | 轮次 / 意图分布 / P95 延迟 / 成本 / 工具失败率 / 风控计数 |
+
+**鉴权**：请求头 `X-Admin-Token`，与 `.env` 的 `ADMIN_TOKEN` 比较（`secrets.compare_digest`）。
+
+| 情况 | 返回 |
+|---|---|
+| `ADMIN_TOKEN` 为空（默认） | `404` + `2004`——不暴露"这里有个后台" |
+| 未带或带错 header | `403` + `2003` |
+| 正确 | `200` |
+
+查询参数：`hours`（1~168，默认取 `METRICS_WINDOW_HOURS`）。
+
+响应 `data` 字段（全部为聚合值，**不含用户标识、订单号、手机号、消息正文**）：
+
+| 字段 | 含义 |
+|---|---|
+| `windowHours` | 统计窗口 |
+| `turns.{total,ok,incomplete,blocked,successRate}` | 助手消息按状态分布 |
+| `latencyMs.{p50,p95,p99}` | 单轮总耗时（`percentile_cont`） |
+| `llm.{calls,errors,errorRate,promptTokens,completionTokens,costCny,costPerTurnCny}` | 来源是 `llm_usage` 表，一次 HTTP 调用一行 |
+| `intent[]` | 意图分布与各意图的未完成数 |
+| `tools.{calls,errors,errorRate,top[]}` | 来源是 `messages.tool_calls` |
+| `afterSales` / `handoff` | 按状态计数 |
+| `security.{auditDenied,throttledLastMinute,throttledTotal,rateLimitPerMinute}` | 审计拒绝数、限流命中数 |
+
+`llm.calls` 与 `turns.total` 的比值应是 2 左右（理解 1 次 + 生成 1 次）；明显偏高通常意味着在重试。
 
 ---
 
@@ -245,6 +270,7 @@ GET /api/v1/sessions?limit=20&cursor=<上一页最后一条 id>
 | 3003 | 内容被安全策略拦截 | 200（SSE `error` 事件） |
 | 4008 | 工具调用超出本轮预算（降级为"查不到"，不中断对话） | 200（SSE `tool` 事件） |
 | 4009 | 会话忙（同会话并发） | 409 |
+| 4029 | 请求过频（按 IP 滑动窗口，中间件直接返回） | 429 + `Retry-After` |
 | 5000 | 内部错误 | 500 |
 
 错误示例：
@@ -316,3 +342,4 @@ data: {"messageId":"1024","usage":{"prompt":812,"completion":96},"latencyMs":184
 | v0.2.0 | P1 | 实现 `/auth/*`、`/products`、`/orders*`；补订单访问控制口径与字段清单 |
 | v0.3.0 | P2 | 实现 `/sessions*`、`/chat/stream`；补 SSE 开流前错误码、幂等重放、`slots` 载荷 |
 | v0.4.0 | P3 | 实现 `/after-sales`、`/handoff`；补可受理判定表、`action` 事件、错误码 4008 |
+| v0.5.0 | P4 | 实现 `/admin/metrics`（`X-Admin-Token`）；补错误码 4029 与限流响应头；`llm_usage` 计量口径 |

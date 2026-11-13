@@ -39,8 +39,18 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24 * 7
 
-    # --- 限流（进程内滑动窗口，P0 只留配置位）---
+    # --- 限流（进程内滑动窗口，P4 在 HTTP 中间件生效）---
+    # 每个 IP 每分钟放行的请求数；**0 = 关闭限流**（评测脚本 / 压测用）
     rate_limit_per_minute: int = 30
+    rate_limit_window_seconds: float = 60.0
+
+    # --- 运维看板 ---
+    # /admin/metrics 的口令；留空则端点直接 404（不暴露"这里有个后台"）
+    admin_token: str = ""
+    metrics_window_hours: int = 24
+    # 单价（元 / 百万 token），按 DeepSeek 官网当前价填写；调价只改配置，不改代码
+    llm_price_input_per_mtok: float = 2.0
+    llm_price_output_per_mtok: float = 3.0
 
     # --- Agent 预算（P2/P3 使用，先固化口径）---
     max_tool_steps: int = 4

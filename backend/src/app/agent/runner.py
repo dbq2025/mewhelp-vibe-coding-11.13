@@ -21,6 +21,7 @@ from app.agent.state import GraphState
 from app.core.logging import get_logger
 from app.domain.services import sessions as session_service
 from app.infra.db.models.chat import Message
+from app.infra.db.models.ops import LlmUsage
 from app.infra.db.models.user import User
 from app.infra.db.session import SessionFactory
 
@@ -44,6 +45,7 @@ async def run_turn(
     status = "incomplete"
     citations: list[dict[str, Any]] = []
     usage = {"prompt": 0, "completion": 0}
+    llm_calls: list[dict[str, Any]] = []
     text_parts: list[str] = []
     error_code: int | None = None
     emitted_error = False
@@ -66,6 +68,7 @@ async def run_turn(
                 user=user,
             )
             with use_context(ctx):
+                llm_calls = ctx.llm_calls
                 # stream_mode 传列表时，LangGraph 逐条产出 (mode, payload) 二元组；
                 # 类型标注在 v1/v2 之间有差异，这里显式 cast 收窄，避免 Any 泄漏到业务代码
                 stream = get_graph().astream(initial, stream_mode=["custom", "values"])
@@ -118,6 +121,7 @@ async def run_turn(
             tool_trace=final.get("tool_trace") or [],
             slots=final.get("slots") or slots,
             usage=usage,
+            llm_calls=llm_calls,
             latency_ms=latency_ms,
             trace_id=trace_id,
         )
@@ -164,6 +168,7 @@ async def _persist(
     tool_trace: list[dict[str, Any]],
     slots: dict[str, Any],
     usage: dict[str, int],
+    llm_calls: list[dict[str, Any]],
     latency_ms: int,
     trace_id: str,
 ) -> None:
@@ -181,6 +186,20 @@ async def _persist(
         message.completion_tokens = usage.get("completion", 0)
         message.latency_ms = latency_ms
         message.trace_id = trace_id
+        # 计量与消息同一个事务：要么都落、要么都不落，不会出现"有消息没成本"的账
+        for call in llm_calls:
+            db.add(
+                LlmUsage(
+                    trace_id=trace_id,
+                    session_id=chat_id,
+                    model=str(call.get("model") or ""),
+                    prompt_tokens=int(call.get("prompt_tokens") or 0),
+                    completion_tokens=int(call.get("completion_tokens") or 0),
+                    latency_ms=int(call.get("latency_ms") or 0),
+                    ok=bool(call.get("ok", True)),
+                    error_code=call.get("error_code"),
+                )
+            )
         await db.commit()
 
         await session_service.save_turn_state(db, session_id=chat_id, slots=slots, intent=intent)

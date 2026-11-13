@@ -15,6 +15,7 @@ from app.agent.runner import run_turn
 from app.core.config import get_settings
 from app.domain.services import sessions as session_service
 from app.infra.db.models.chat import ChatSession, Message
+from app.infra.db.models.ops import LlmUsage
 from app.infra.db.models.user import User
 from app.infra.db.session import SessionFactory
 from tests.fakes.fake_llm import FakeLlm, plan, sse_events
@@ -28,9 +29,26 @@ async def _reset_llm() -> AsyncIterator[None]:
 
 @pytest.fixture(autouse=True)
 async def _cleanup_sessions() -> AsyncIterator[None]:
+    """按「测试前后差集」清理会话，而不是整表清空。
+
+    整表清空会连开发者手工测出来的会话历史一起删掉（P4 实测踩到：
+    跑一次 pytest，侧边栏记录和 llm_usage 计量都没了）。差集法只回收
+    本用例新造出来的行，测试之间也不依赖执行顺序。
+    """
+    async with SessionFactory() as session:
+        before = set((await session.scalars(select(ChatSession.id))).all())
     yield
     async with SessionFactory() as session:
-        await session.execute(delete(ChatSession))
+        stale = [
+            row
+            for row in (await session.scalars(select(ChatSession.id))).all()
+            if row not in before
+        ]
+        if stale:
+            # 消息随会话级联删除；llm_usage 没有外键，必须显式回收，
+            # 否则测试会把"看不见轮次、只看见成本"的脏数据留在看板里
+            await session.execute(delete(LlmUsage).where(LlmUsage.session_id.in_(stale)))
+            await session.execute(delete(ChatSession).where(ChatSession.id.in_(stale)))
         await session.commit()
 
 

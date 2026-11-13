@@ -79,6 +79,10 @@ uv run python scripts/ingest_kb.py --dry-run # 只分块，不调 embedding（�
 uv run python scripts/ingest_kb.py           # 灌库（需要 EMBEDDING_API_KEY）
 uv run python scripts/eval_retrieval.py      # 10 条 query 的 hit@3，写入 docs/eval.md
 uv run python scripts/eval_scenarios.py      # 20 条业务场景验收（需先起后端，用真实模型）
+uv run python scripts/eval.py                # P4 评测：意图/工具/延迟/成本/对抗集（需先起后端）
+
+# 运维（后端需配置 ADMIN_TOKEN）
+curl -H "X-Admin-Token: local-admin-token" "localhost:8000/api/v1/admin/metrics?hours=24"
 
 # 数据库
 docker compose exec db psql -U app -d ecom
@@ -119,7 +123,7 @@ infra/db/init/001_extensions.sql   首启建 vector / pg_trgm
 | P1 | 数据、检索与只读 API | ✅ 代码与接口已完成（检索验收待 API Key） |
 | P2 | 对话主链路（SSE + 多轮 + 会话历史） | ✅ 已完成（2026-11-13） |
 | P3 | 业务闭环（售后受理 / 转人工 / 混合检索） | ✅ 已完成（2026-11-13） |
-| P4 | 质量、安全与可观测 | 待开始 |
+| P4 | 质量、安全与可观测（限流 / 计量 / 看板 / 评测） | ✅ 已完成（2026-11-13） |
 | P5 | 体验与交付 | 待开始 |
 
 ---

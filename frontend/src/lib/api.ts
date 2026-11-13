@@ -39,6 +39,19 @@ export function setToken(token: string | null): void {
   localStorage.setItem(TOKEN_KEY, token)
 }
 
+/**
+ * 429 单独处理：后端的文案是通用兜底，而 `Retry-After` 才是"还要等几秒"的准确答案。
+ * 把秒数拼进提示，用户不用猜"稍后"是多久（P4 验收第 4 条）。
+ */
+function rateLimitMessage(response: Response, fallback: string): string {
+  const raw = response.headers.get('Retry-After')
+  const seconds = raw === null ? NaN : Number(raw)
+  if (Number.isFinite(seconds) && seconds > 0) {
+    return `请求太频繁了，${Math.ceil(seconds)} 秒后再试一次`
+  }
+  return fallback
+}
+
 async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   headers.set('Accept', 'application/json')
@@ -65,7 +78,9 @@ async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError(-1, `响应不是合法 JSON（HTTP ${response.status}）`, response.status)
   }
   if (body.code !== 0) {
-    throw new ApiError(body.code, body.message, response.status)
+    const message =
+      response.status === 429 ? rateLimitMessage(response, body.message) : body.message
+    throw new ApiError(body.code, message, response.status)
   }
   if (body.data === null) {
     throw new ApiError(-1, '响应缺少 data 字段', response.status)
@@ -128,9 +143,10 @@ export async function streamChat(
   if (!response.ok) {
     // 开流前的失败是普通 envelope，这里是前端唯一需要读 JSON 错误的地方
     const body = (await response.json().catch(() => null)) as ApiResponse<unknown> | null
+    const fallback = body?.message ?? `请求失败（HTTP ${response.status}）`
     throw new ApiError(
       body?.code ?? -1,
-      body?.message ?? `请求失败（HTTP ${response.status}）`,
+      response.status === 429 ? rateLimitMessage(response, fallback) : fallback,
       response.status,
     )
   }
