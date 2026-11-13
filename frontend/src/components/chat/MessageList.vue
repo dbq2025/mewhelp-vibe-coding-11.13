@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import SkeletonBlock from '@/components/common/SkeletonBlock.vue'
 import type { ChatMessage } from '@/types/chat'
 
-const props = defineProps<{ messages: ChatMessage[]; streaming: boolean }>()
+const props = withDefaults(
+  defineProps<{ messages: ChatMessage[]; streaming: boolean; loading?: boolean }>(),
+  { loading: false },
+)
 const emit = defineEmits<{ retry: []; pick: [text: string] }>()
 
 const SUGGESTIONS = [
@@ -50,9 +54,37 @@ function toolLabel(name: string): string {
 </script>
 
 <template>
-  <div class="px-5 py-8">
+  <div class="px-4 py-6 sm:px-5 sm:py-8">
+    <!-- 历史消息加载：用骨架屏占住"两个来回"的形状，避免空白闪一下再跳出来 -->
     <div
-      v-if="messages.length === 0"
+      v-if="loading"
+      class="mx-auto max-w-chat space-y-7"
+      aria-label="正在加载历史消息"
+      aria-busy="true"
+    >
+      <div
+        v-for="n in 2"
+        :key="n"
+        class="space-y-2"
+      >
+        <skeleton-block
+          w="w-10"
+          h="h-2.5"
+        />
+        <skeleton-block
+          :w="n === 1 ? 'w-2/5' : 'w-4/5'"
+          h="h-3.5"
+        />
+        <skeleton-block
+          v-if="n === 2"
+          w="w-3/5"
+          h="h-3.5"
+        />
+      </div>
+    </div>
+
+    <div
+      v-else-if="messages.length === 0"
       class="mx-auto flex max-w-chat flex-col items-center gap-4 text-center"
     >
       <div class="grid h-12 w-12 place-items-center rounded-2xl bg-brand-soft text-lg font-bold text-brand">
@@ -88,7 +120,7 @@ function toolLabel(name: string): string {
         v-for="(message, index) in messages"
         :key="message.id"
       >
-        <div class="mb-1 flex items-center gap-2 text-xs text-muted">
+        <div class="mb-1 flex flex-wrap items-center gap-2 text-xs text-muted">
           <span class="font-medium">{{ message.role === 'user' ? '我' : '客服' }}</span>
           <span
             v-if="message.role === 'assistant' && message.intent"
@@ -116,13 +148,13 @@ function toolLabel(name: string): string {
           </span>
         </div>
 
-        <div class="whitespace-pre-wrap break-words text-sm leading-relaxed text-ink">
-          {{ message.content }}<span
-            v-if="isLive(index, message) && message.content === ''"
-            class="text-muted"
-          >…</span>
+        <!-- 流式期间正文末尾跟一个打字光标；光标是伪元素，不会被复制走 -->
+        <div
+          class="whitespace-pre-wrap break-words text-sm leading-relaxed text-ink"
+          :class="{ caret: isLive(index, message) }"
+        >
+          {{ message.content }}
         </div>
-
 
         <!-- 待确认动作 / 写操作结果：售后与转人工都必须让用户看见"提交了什么" -->
         <div
@@ -146,19 +178,25 @@ function toolLabel(name: string): string {
             >
               <button
                 type="button"
-                class="rounded-md bg-brand px-2.5 py-1 text-[11px] font-medium text-white hover:opacity-90"
+                class="rounded-md bg-brand px-3 py-1.5 text-[11px] font-medium text-brand-ink hover:opacity-90"
                 @click="emit('pick', message.action.confirmText)"
               >
                 {{ message.action.confirmText }}
               </button>
               <button
                 type="button"
-                class="rounded-md border border-line px-2.5 py-1 text-[11px] text-muted hover:border-brand hover:text-brand"
+                class="rounded-md border border-line px-3 py-1.5 text-[11px] text-muted hover:border-brand hover:text-brand"
                 @click="emit('pick', message.action.cancelText)"
               >
                 {{ message.action.cancelText }}
               </button>
             </div>
+            <p
+              v-else
+              class="mt-1 text-[11px] text-muted/70"
+            >
+              历史记录，如需办理请重新发起
+            </p>
           </template>
 
           <p
@@ -219,22 +257,26 @@ function toolLabel(name: string): string {
           </ul>
         </details>
 
+        <!-- 引用卡片：编号徽章 + 标题，点开看原文片段。编号与正文里的 [1][2] 对应 -->
         <ul
           v-if="message.role === 'assistant' && (message.citations?.length ?? 0) > 0"
-          class="mt-2 flex flex-wrap gap-1.5"
+          class="mt-2.5 flex flex-col gap-1.5"
         >
           <li
             v-for="citation in message.citations"
             :key="citation.index"
+            class="max-w-md"
           >
-            <details>
-              <summary
-                class="cursor-pointer rounded border border-line bg-surface px-2 py-0.5 text-[11px] text-muted hover:border-brand hover:text-brand"
-                :title="citation.snippet"
-              >
-                [{{ citation.index }}] {{ citation.title }}
+            <details class="group rounded-lg border border-line bg-surface">
+              <summary class="flex cursor-pointer select-none items-center gap-2 px-2.5 py-1.5 text-[11px] text-muted hover:text-ink">
+                <span class="grid h-4 min-w-4 shrink-0 place-items-center rounded bg-brand-soft px-1 text-[10px] font-medium text-brand">
+                  [{{ citation.index }}]
+                </span>
+                <span class="truncate">{{ citation.title }}</span>
+                <span class="ml-auto shrink-0 text-[10px] text-muted/60 group-open:hidden">展开</span>
+                <span class="ml-auto hidden shrink-0 text-[10px] text-muted/60 group-open:inline">收起</span>
               </summary>
-              <p class="mt-1 max-w-md rounded bg-canvas p-2 text-[11px] leading-relaxed text-muted">
+              <p class="border-t border-line px-2.5 py-2 text-[11px] leading-relaxed text-muted">
                 {{ citation.snippet }}
               </p>
             </details>
@@ -244,7 +286,7 @@ function toolLabel(name: string): string {
         <button
           v-if="index === lastIndex && message.role === 'assistant' && message.status === 'incomplete' && !streaming"
           type="button"
-          class="mt-2 rounded border border-line px-2 py-1 text-xs text-muted hover:border-brand hover:text-brand"
+          class="mt-2 rounded border border-line px-2.5 py-1 text-xs text-muted hover:border-brand hover:text-brand"
           @click="emit('retry')"
         >
           重试本条

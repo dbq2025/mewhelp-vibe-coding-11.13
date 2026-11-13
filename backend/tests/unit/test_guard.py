@@ -59,6 +59,20 @@ def test_streaming_scrubber_never_leaks_split_order_no() -> None:
     assert "另一笔订单" in emitted
 
 
+def test_streaming_scrubber_keeps_order_prefix_with_number() -> None:
+    """切点落在「订单」后面时，不能拼出「订单 另一笔订单」这种病句。"""
+    scrubber = StreamingScrubber(allowed_order_nos=set())
+    emitted = ""
+    # 40 字 hold-back 恰好把「订单」后面切成断点
+    for char in "我这边查不到订单 20261101023 的物流信息":
+        emitted += scrubber.feed(char)
+    emitted += scrubber.flush()
+
+    assert "20261101023" not in emitted
+    assert "订单 另一笔订单" not in emitted
+    assert "另一笔订单" in emitted
+
+
 def test_streaming_scrubber_keeps_authorized_order_no() -> None:
     scrubber = StreamingScrubber(allowed_order_nos={"20261101001"})
     emitted = ""

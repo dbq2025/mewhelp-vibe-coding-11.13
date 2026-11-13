@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from app.agent.slots import _ORDER_NO, _PHONE
+from app.agent.slots import _PHONE
 from app.core.config import get_settings
 
 # 会话级限流直接用 HTTP 层那个滑动窗口单例（键加 "session:" 前缀区分维度）
@@ -93,6 +93,10 @@ def check_input(text: str, *, session_id: str) -> GuardResult:
 
 
 # ------------------------------------------------------------------ 输出校验
+# 输出脱敏用：允许把紧邻的「订单」一起替换，避免出现「订单 另一笔订单」的病句
+_PREFIXED_ORDER_NO = re.compile(r"(?:订单\s*)?(?<!\d)(20\d{9})(?!\d)")
+
+
 def scrub_output(text: str, *, allowed_order_nos: set[str]) -> tuple[str, list[str]]:
     """把草稿里不该出现的敏感事实改写掉，返回 (新文本, 命中原因列表)。
 
@@ -103,12 +107,14 @@ def scrub_output(text: str, *, allowed_order_nos: set[str]) -> tuple[str, list[s
     reasons: list[str] = []
     result = text or ""
 
-    for match in _ORDER_NO.finditer(result):
-        order_no = match.group(1)
-        if order_no in allowed_order_nos:
-            continue
-        result = result.replace(order_no, "另一笔订单")
+    def _mask_order(match: re.Match[str]) -> str:
+        if match.group(1) in allowed_order_nos:
+            return match.group(0)
         reasons.append("foreign_order_no")
+        # 连前面紧跟的「订单」一起吃掉，否则会读成「查不到订单 另一笔订单 的物流」
+        return "另一笔订单"
+
+    result = _PREFIXED_ORDER_NO.sub(_mask_order, result)
 
     def _mask(match: re.Match[str]) -> str:
         phone = match.group(1)
@@ -135,6 +141,10 @@ def fallback_answer(reason: str) -> str:
 HOLD_BACK_CHARS = 40
 
 
+# 流式切点的保护规则：不能落在「订」「单」「订单 」「订单+数字」中间
+_BOUNDARY_SPLIT = re.compile(r"(?:订|单|订单\s*)\d*$")
+
+
 class StreamingScrubber:
     """边流边校验：hold-back 缓冲 + 数字边界对齐。
 
@@ -159,6 +169,13 @@ class StreamingScrubber:
         cut = len(self.buffer) - HOLD_BACK_CHARS
         while cut > 0 and self.buffer[cut].isdigit() and self.buffer[cut - 1].isdigit():
             cut -= 1
+        # 切点不能把「订」「单」「订单 」「订单 + 数字」切开：
+        # 一旦前半段先吐出「订单 」，后半段的单号被替换后会拼成「订单 另一笔订单」。
+        guard = _BOUNDARY_SPLIT.search(self.buffer[:cut])
+        if guard is not None:
+            cut = guard.start()
+        if cut <= 0:
+            return ""
         segment, self.buffer = self.buffer[:cut], self.buffer[cut:]
         clean, reasons = scrub_output(segment, allowed_order_nos=self.allowed)
         self.reasons.update(reasons)

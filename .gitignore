@@ -58,6 +58,8 @@ logs/
 .cache/
 tmp/
 temp/
+# 本地验证产物（Playwright 截图等），不入库
+.tmp/
 
 # --- Docker 本地覆盖 ---
 docker-compose.override.yml

@@ -9,6 +9,7 @@ from http import HTTPStatus
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import SQLAlchemyError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.logging import get_logger
@@ -30,6 +31,8 @@ CODE_SESSION_BUSY = 4009
 # HTTP 层限流（中间件直接返回，不走异常处理器；码值仍登记在此，前端只需认它）
 CODE_RATE_LIMITED = 4029
 CODE_INTERNAL = 5000
+# 依赖不可用（数据库连不上）：与"代码 bug"区分开，前者可重试，后者重试也没用
+CODE_UNAVAILABLE = 5002
 
 
 class AppError(Exception):
@@ -98,6 +101,29 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def _handle_http(_: Request, exc: StarletteHTTPException) -> JSONResponse:
         code = CODE_NOT_FOUND if exc.status_code == HTTPStatus.NOT_FOUND else CODE_INTERNAL
         return JSONResponse(status_code=exc.status_code, content=_envelope(code, str(exc.detail)))
+
+    @app.exception_handler(SQLAlchemyError)
+    async def _handle_db_unavailable(_: Request, exc: SQLAlchemyError) -> JSONResponse:
+        """库连不上 → 503 + 可读文案。
+
+        不这么兜的话，Docker 停库时前端只会收到「服务内部错误，请稍后重试」（500），
+        用户与演示者都无法区分"代码有 bug"和"基础设施暂时不可用"。
+        """
+        logger.error("db_unavailable", error=repr(exc))
+        return JSONResponse(
+            status_code=HTTPStatus.SERVICE_UNAVAILABLE,
+            content=_envelope(CODE_UNAVAILABLE, "数据库暂时不可用，请稍后重试"),
+        )
+
+    # asyncpg 建连失败时抛的是 ConnectionRefusedError（OSError 分支），
+    # 比 SQLAlchemyError 更早一层，必须同样兜住（P5 停库演示实测）。
+    @app.exception_handler(ConnectionError)
+    async def _handle_conn_refused(_: Request, exc: ConnectionError) -> JSONResponse:
+        logger.error("dependency_unavailable", error=repr(exc))
+        return JSONResponse(
+            status_code=HTTPStatus.SERVICE_UNAVAILABLE,
+            content=_envelope(CODE_UNAVAILABLE, "数据库暂时不可用，请稍后重试"),
+        )
 
     @app.exception_handler(Exception)
     async def _handle_unexpected(_: Request, exc: Exception) -> JSONResponse:

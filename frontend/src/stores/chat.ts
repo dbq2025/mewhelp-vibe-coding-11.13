@@ -182,6 +182,11 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  /** 用户点"忽略"：只清提示，不动已经生成的半截回答（它仍有"重试本条"入口） */
+  function clearError(): void {
+    error.value = null
+  }
+
   return {
     messages,
     streaming,
@@ -190,6 +195,7 @@ export const useChatStore = defineStore('chat', () => {
     notice,
     lastAssistant,
     canRetry,
+    clearError,
     loadMessages,
     reset,
     pushUser,

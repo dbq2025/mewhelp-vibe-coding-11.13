@@ -3,10 +3,10 @@
 一个能完成**商品咨询、订单查询、售后受理**的电商客服 Agent，回答中的每个事实都能溯源到数据库或知识库。
 本项目用于跑通生产级 AI 应用的六条链路：意图识别、工具调用、检索增强、多轮记忆、流式体验、可观测与评测。
 
-> 当前阶段：**P3 业务闭环已完成**（P0 基座 + P1 数据检索 + P2 流式对话 + P3 售后受理/转人工/混合检索）。
-> 验收实测：20 条场景 + 1 条数据库校验 **21/21 通过**，3 轮指代接续正确，首 token 中位数 1.16s，
-> 售后"出卡片 → 确认 → 建单 → 重复确认幂等"整条链路可跑，数据见 `docs/eval.md`。
-> 范围与验收见 `docs/IMPLEMENTATION_PLAN.md`，工程规范见 `agent.md`，接口契约见 `docs/api.md`。
+> 当前阶段：**P5 体验与交付已完成**（P0 基座 → P1 数据检索 → P2 流式对话 → P3 售后闭环 → P4 质量安全 → P5 体验交付）。
+> 验收实测：20 条业务场景 **21/21 通过**；P4 评测集意图 0.983 / 工具 0.983 / 首字 P95 2.36s / 单轮 ¥0.00086；
+> 注入拦截 5/5、越权泄漏 0；移动端 375px 可用、停库可降级。数据见 `docs/eval.md` 与 `docs/demo.md`。
+> 范围与验收见 `docs/IMPLEMENTATION_PLAN.md`，工程规范见 `agent.md`，接口契约见 `docs/api.md`，界面规范见 `docs/ui.md`。
 
 ---
 
@@ -56,6 +56,20 @@ curl http://127.0.0.1:8000/health
 
 > Windows 提示：Vite 默认只监听 `[::1]`，请用 `localhost` 而非 `127.0.0.1` 访问前端。
 
+### 五条命令的实测记录（2026-11-13，本机 Windows 11 + Docker Desktop）
+
+| # | 命令 | 预期 | 实测 | 耗时 |
+|---|---|---|---|---|
+| 1 | `docker compose up -d` | `ecom-copilot-db` Up (healthy)，宿主 5433 | ✅ 一致（首次拉镜像除外） | 0.5s（镜像已存在） |
+| 2 | `cp .env.example .env` 后填 `LLM_API_KEY`/`EMBEDDING_API_KEY` | 两把 key 非空；缺 key 时 `ingest_kb.py` 会明确报错 | ✅ 19 个配置项齐备 | — |
+| 3 | `cd backend && uv sync && uv run alembic upgrade head && uv run python scripts/seed.py && uv run python scripts/ingest_kb.py` | 迁移到 head；seed 幂等（3 用户/8 分类/40 商品/30 订单/40 明细/12 物流/3 售后）；KB 25 篇 127 块 | ✅ 完全一致 | uv sync 5.4s（有缓存）· alembic 1.2s · seed --check 0.9s · ingest --dry-run 0.9s |
+| 4 | `uv run uvicorn app.main:app --reload --port 8000` | `/health` 返回 `db:ok` `vector:ok` | ✅ | 启动约 3s |
+| 5 | `cd ../frontend && npm install && npm run dev` | `localhost:5173` 返回 200，登录后可对话 | ✅ 360 包 8s；构建与单测全绿 | npm install 8s |
+
+> 冷安装说明：本轮把 `frontend/node_modules` 移走后重装（360 包 / 8s，走 npmmirror）。
+> `backend/.venv` 因文件被占用无法移走，改用**同一份 `pyproject.toml` + `uv.lock` 在临时目录冷同步**验证（5.4s，命中 uv 本地缓存）。
+> `npm install` 会提示 `esbuild` 的 postinstall 未被 allow-scripts 放行，但 `@esbuild/win32-x64` 已作为可选依赖安装，`npm run dev`/`build` 实测正常。
+
 ---
 
 ## 常用命令
@@ -80,6 +94,7 @@ uv run python scripts/ingest_kb.py           # 灌库（需要 EMBEDDING_API_KEY
 uv run python scripts/eval_retrieval.py      # 10 条 query 的 hit@3，写入 docs/eval.md
 uv run python scripts/eval_scenarios.py      # 20 条业务场景验收（需先起后端，用真实模型）
 uv run python scripts/eval.py                # P4 评测：意图/工具/延迟/成本/对抗集（需先起后端）
+uv run python scripts/demo_check.py         # P5 演示排练：S1–S7 全场景跑一遍并打印证据（需先起后端）
 
 # 运维（后端需配置 ADMIN_TOKEN）
 curl -H "X-Admin-Token: local-admin-token" "localhost:8000/api/v1/admin/metrics?hours=24"
@@ -107,7 +122,7 @@ backend/
 frontend/
   src/
     views/ components/ composables/ stores/ lib/ types/ styles/
-docs/         IMPLEMENTATION_PLAN.md · api.md · data-model.md
+docs/         IMPLEMENTATION_PLAN.md · api.md · data-model.md · eval.md · ui.md · demo.md
 infra/db/init/001_extensions.sql   首启建 vector / pg_trgm
 ```
 
@@ -124,7 +139,7 @@ infra/db/init/001_extensions.sql   首启建 vector / pg_trgm
 | P2 | 对话主链路（SSE + 多轮 + 会话历史） | ✅ 已完成（2026-11-13） |
 | P3 | 业务闭环（售后受理 / 转人工 / 混合检索） | ✅ 已完成（2026-11-13） |
 | P4 | 质量、安全与可观测（限流 / 计量 / 看板 / 评测） | ✅ 已完成（2026-11-13） |
-| P5 | 体验与交付 | 待开始 |
+| P5 | 体验与交付（UI 打磨 / README 五命令 / 演示脚本） | ✅ 已完成（2026-11-13） |
 
 ---
 

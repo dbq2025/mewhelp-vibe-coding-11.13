@@ -2,8 +2,17 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover 才能让 env(safe-area-inset-bottom) 拿到真实值（iPhone 刘海屏） -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
     <title>ecom-copilot · 电商智能客服</title>
+    <!-- 内联 SVG favicon：省一次请求，也避免控制台出现 /favicon.ico 404 -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231f6feb'/%3E%3Ctext x='16' y='22' font-family='Segoe UI,Arial' font-size='14' font-weight='700' text-anchor='middle' fill='white'%3EEC%3C/text%3E%3C/svg%3E"
+    />
   </head>
   <body>
     <div id="app"></div>

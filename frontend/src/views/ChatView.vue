@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
-import { nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import MessageComposer from '@/components/chat/MessageComposer.vue'
@@ -16,11 +16,24 @@ const route = useRoute()
 const router = useRouter()
 const sessionStore = useSessionStore()
 const chatStore = useChatStore()
-const { messages, streaming, error, notice, loading } = storeToRefs(chatStore)
+const { messages, streaming, error, notice, loading, canRetry } = storeToRefs(chatStore)
 const { send, stop, retry, openSession } = useChatStream()
 
 const composerText = ref('')
 const scroller = ref<HTMLElement | null>(null)
+/** 移动端侧栏默认关闭；桌面端由 CSS 常驻，这个状态只对 <md 生效 */
+const sidebarOpen = ref(false)
+
+/**
+ * URL 里有会话 id 但消息还没到：此时既不是"空会话"也不该显示欢迎页。
+ * 首屏是先拉会话列表、再拉消息，中间这段空窗如果不盖住，会先闪一下"有什么可以帮你"
+ * 再跳成历史消息，看起来像是会话丢了。
+ */
+const historyLoading = computed(() => {
+  const id = route.params.sessionId
+  const hasRouteSession = typeof id === 'string' && id.length > 0
+  return loading.value || (hasRouteSession && sessionStore.loading && messages.value.length === 0)
+})
 
 async function scrollToBottom(): Promise<void> {
   await nextTick()
@@ -62,6 +75,11 @@ watch(
   },
 )
 
+// 抽屉打开时锁住背景滚动，否则移动端手指滑动会穿透到消息列表
+watch(sidebarOpen, (open) => {
+  document.body.style.overflow = open ? 'hidden' : ''
+})
+
 async function handleSend(): Promise<void> {
   const text = composerText.value.trim()
   if (!text || streaming.value) return
@@ -75,8 +93,13 @@ function handlePick(text: string): void {
   void handleSend()
 }
 
+function closeSidebar(): void {
+  sidebarOpen.value = false
+}
+
 async function handleCreate(): Promise<void> {
   stop()
+  closeSidebar()
   chatStore.reset()
   const created = await sessionStore.createSession()
   await router.push({ name: 'chat', params: { sessionId: created.id } })
@@ -85,6 +108,7 @@ async function handleCreate(): Promise<void> {
 
 async function handleSelect(id: string): Promise<void> {
   stop()
+  closeSidebar()
   await router.push({ name: 'chat', params: { sessionId: id } })
 }
 
@@ -94,6 +118,7 @@ async function handleRemove(id: string): Promise<void> {
   const next = sessionStore.currentId
   if (next === null) {
     chatStore.reset()
+    closeSidebar()
     await router.push({ name: 'chat', params: {} })
     return
   }
@@ -105,20 +130,23 @@ function handleLogout(): void {
   setToken(null)
   sessionStore.clear()
   chatStore.reset()
+  closeSidebar()
   void router.push({ name: 'login' })
 }
 </script>
 
 <template>
-  <div class="flex h-full">
+  <div class="flex h-full overflow-hidden">
     <session-sidebar
+      :open="sidebarOpen"
       @create="handleCreate"
       @select="handleSelect"
       @remove="handleRemove"
       @logout="handleLogout"
+      @close="closeSidebar"
     />
     <div class="flex min-w-0 flex-1 flex-col">
-      <app-header />
+      <app-header @toggle-sidebar="sidebarOpen = !sidebarOpen" />
 
       <p
         v-if="notice && notice.changed.length > 0"
@@ -131,27 +159,39 @@ function handleLogout(): void {
         ref="scroller"
         class="min-h-0 flex-1 overflow-y-auto"
       >
-        <p
-          v-if="loading"
-          class="px-5 py-8 text-center text-xs text-muted"
-        >
-          正在加载历史消息…
-        </p>
         <message-list
-          v-else
           :messages="messages"
           :streaming="streaming"
+          :loading="historyLoading"
           @retry="retry"
           @pick="handlePick"
         />
       </div>
 
-      <p
+      <!-- 错误条：一句话说清 + 能立刻重试，不把用户堵在"再来一次"的空白里 -->
+      <div
         v-if="error"
-        class="shrink-0 border-t border-line bg-danger/5 px-5 py-1.5 text-center text-xs text-danger"
+        class="flex shrink-0 flex-wrap items-center justify-center gap-x-3 gap-y-1 border-t border-line bg-danger/5 px-4 py-2 text-xs text-danger"
+        role="alert"
       >
-        {{ error }}
-      </p>
+        <span class="text-center">{{ error }}</span>
+        <button
+          v-if="canRetry"
+          type="button"
+          class="rounded border border-danger/40 px-2 py-0.5 hover:bg-danger/10"
+          @click="retry"
+        >
+          重试本条
+        </button>
+        <button
+          type="button"
+          class="text-danger/70 hover:text-danger"
+          aria-label="关闭提示"
+          @click="chatStore.clearError()"
+        >
+          忽略
+        </button>
+      </div>
 
       <message-composer
         v-model="composerText"

@@ -27,7 +27,89 @@
     height: 100%;
   }
 
+  /* 移动端地址栏/软键盘会改变可视高度：dvh 跟随可视视口，vh 不会。
+     不支持 dvh 的浏览器由上面的 height:100% 兜底。 */
+  @supports (height: 100dvh) {
+    html,
+    body,
+    #app {
+      height: 100dvh;
+    }
+  }
+
   body {
     @apply bg-canvas font-sans text-ink antialiased;
+    /* 关掉 iOS 横屏字号自动放大，否则 375px 下排版会跳 */
+    -webkit-text-size-adjust: 100%;
+    overscroll-behavior-y: none;
+  }
+
+  /* 细滚动条：窄屏不占宽度，桌面端不抢视线 */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-line) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background-color: var(--c-line);
+  }
+
+  /* 触摸设备按钮命中区不小于 40px（iOS 建议值），桌面端不受影响 */
+  @media (pointer: coarse) {
+    button {
+      min-height: 2.5rem;
+    }
+  }
+}
+
+@layer utilities {
+  /* 流式输出的打字光标：纯视觉，不进入可复制的文本 */
+  .caret::after {
+    content: '';
+    display: inline-block;
+    width: 0.45em;
+    height: 1em;
+    margin-left: 0.15em;
+    vertical-align: -0.15em;
+    background-color: currentColor;
+    animation: caret-blink 1s steps(2, start) infinite;
+  }
+
+  /* 底部安全区：iPhone home indicator 不会压住输入框 */
+  .pb-safe {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+}
+
+@keyframes caret-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0;
+  }
+}
+
+/* 尊重系统「减少动态效果」：骨架屏与光标都不再闪 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .caret::after {
+    opacity: 1;
+    animation: none;
   }
 }

@@ -271,6 +271,7 @@ GET /api/v1/sessions?limit=20&cursor=<上一页最后一条 id>
 | 4008 | 工具调用超出本轮预算（降级为"查不到"，不中断对话） | 200（SSE `tool` 事件） |
 | 4009 | 会话忙（同会话并发） | 409 |
 | 4029 | 请求过频（按 IP 滑动窗口，中间件直接返回） | 429 + `Retry-After` |
+| 5002 | 依赖不可用（数据库连不上，可重试） | 503 |
 | 5000 | 内部错误 | 500 |
 
 错误示例：
@@ -343,3 +344,4 @@ data: {"messageId":"1024","usage":{"prompt":812,"completion":96},"latencyMs":184
 | v0.3.0 | P2 | 实现 `/sessions*`、`/chat/stream`；补 SSE 开流前错误码、幂等重放、`slots` 载荷 |
 | v0.4.0 | P3 | 实现 `/after-sales`、`/handoff`；补可受理判定表、`action` 事件、错误码 4008 |
 | v0.5.0 | P4 | 实现 `/admin/metrics`（`X-Admin-Token`）；补错误码 4029 与限流响应头；`llm_usage` 计量口径 |
+| v0.6.0 | P5 | `/health` 在库不可用时稳定返回 **503 + `db:down`**（不再 500）；新增错误码 **5002**；纯前端打磨不改契约 |

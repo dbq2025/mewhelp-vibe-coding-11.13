@@ -48,14 +48,15 @@ watch(
 </script>
 
 <template>
-  <div class="shrink-0 border-t border-line bg-surface px-5 py-3">
+  <!-- pb-safe：iPhone 的 home indicator 不压住输入框；窄屏左右留白收窄到 12px -->
+  <div class="pb-safe shrink-0 border-t border-line bg-surface px-3 pt-3 sm:px-5">
     <div class="mx-auto max-w-chat">
-      <div class="flex items-end gap-2 rounded-xl border border-line bg-canvas px-3 py-2">
+      <div class="flex items-end gap-2 rounded-xl border border-line bg-canvas px-3 py-2 focus-within:border-brand">
         <textarea
           ref="textarea"
           rows="1"
-          class="max-h-40 flex-1 resize-none bg-transparent text-sm leading-relaxed outline-none placeholder:text-muted disabled:cursor-not-allowed"
-          placeholder="问商品、查订单、咨询售后政策…（Enter 发送，Shift+Enter 换行）"
+          class="max-h-40 flex-1 resize-none bg-transparent text-base leading-relaxed outline-none placeholder:text-muted disabled:cursor-not-allowed sm:text-sm"
+          placeholder="问商品、查订单、咨询售后政策…"
           :value="modelValue"
           :disabled="disabled"
           aria-label="消息输入框"
@@ -87,9 +88,12 @@ watch(
       </div>
       <p
         v-if="hint"
-        class="mt-2 text-center text-xs text-muted"
+        class="mt-2 hidden text-center text-xs text-muted sm:block"
       >
         {{ hint }}
+      </p>
+      <p class="mt-2 text-center text-[11px] text-muted sm:hidden">
+        Enter 发送 · Shift+Enter 换行
       </p>
     </div>
   </div>
