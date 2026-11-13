@@ -3,7 +3,15 @@
  * 职责：拼 baseURL、带 token、解 envelope、统一抛 ApiError。
  */
 
-import type { ApiResponse, HealthData, MetaData } from '@/types/api'
+import type {
+  ApiResponse,
+  HealthData,
+  MessageDto,
+  MetaData,
+  PageMeta,
+  SessionSummary,
+  TokenData,
+} from '@/types/api'
 
 const TOKEN_KEY = 'ecom-copilot.token'
 
@@ -68,4 +76,63 @@ async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
 export const api = {
   health: (signal?: AbortSignal): Promise<HealthData> => request('/health', { signal }),
   meta: (signal?: AbortSignal): Promise<MetaData> => request('/api/v1/meta', { signal }),
+
+  login: (phone: string, password: string): Promise<TokenData> =>
+    request('/api/v1/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ phone, password }),
+    }),
+  me: (signal?: AbortSignal): Promise<{ id: number; phone: string; nickname: string }> =>
+    request('/api/v1/auth/me', { signal }),
+
+  listSessions: (signal?: AbortSignal): Promise<{ items: SessionSummary[]; page: PageMeta }> =>
+    request('/api/v1/sessions?limit=50', { signal }),
+  createSession: (title?: string): Promise<SessionSummary> =>
+    request('/api/v1/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ title: title ?? null }),
+    }),
+  renameSession: (id: string, title: string): Promise<SessionSummary> =>
+    request(`/api/v1/sessions/${id}`, { method: 'PATCH', body: JSON.stringify({ title }) }),
+  deleteSession: (id: string): Promise<null> =>
+    request(`/api/v1/sessions/${id}`, { method: 'DELETE' }),
+
+  listMessages: (
+    sessionId: string,
+    beforeId?: number,
+  ): Promise<{ items: MessageDto[]; page: PageMeta }> =>
+    request(
+      `/api/v1/sessions/${sessionId}/messages?limit=50${beforeId ? `&beforeId=${beforeId}` : ''}`,
+    ),
+}
+
+/**
+ * 流式对话。返回原始 Response 交给 `lib/sse.ts` 解帧——
+ * 这里不解析内容，只负责把 HTTP 层错误转成 ApiError（SSE 一旦开流就不能改状态码）。
+ */
+export async function streamChat(
+  payload: { sessionId: string; message: string; clientMsgId: string },
+  signal?: AbortSignal,
+): Promise<Response> {
+  const headers = new Headers({ 'Content-Type': 'application/json', Accept: 'text/event-stream' })
+  const token = getToken()
+  if (token !== null) headers.set('Authorization', `Bearer ${token}`)
+
+  const response = await fetch('/api/v1/chat/stream', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+    signal,
+  })
+
+  if (!response.ok) {
+    // 开流前的失败是普通 envelope，这里是前端唯一需要读 JSON 错误的地方
+    const body = (await response.json().catch(() => null)) as ApiResponse<unknown> | null
+    throw new ApiError(
+      body?.code ?? -1,
+      body?.message ?? `请求失败（HTTP ${response.status}）`,
+      response.status,
+    )
+  }
+  return response
 }

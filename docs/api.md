@@ -1,6 +1,6 @@
 # API 契约 · ecom-copilot
 
-> 版本：v0.2.0（P0 + P1）
+> 版本：v0.3.0（P0 + P1 + P2）
 > 本文件是**前后端唯一契约**。改动接口必须先改本文件，再改代码（agent.md §6）。
 > 表内 `状态` 列含义：`已实现` = 当前可调用（P0 基础设施 / P1 数据接口）；`规划` = 后续阶段实现，字段已冻结。
 
@@ -114,20 +114,40 @@ GET /api/v1/sessions?limit=20&cursor=<上一页最后一条 id>
 
 ### 2.3 会话（P2）
 
+**全部需要登录**（`Authorization: Bearer`）。会话与 `user_id` 绑定，游客无法建会话——
+聊天会写消息、写槽位、可能触发工单，这些都必须可归属到人。
+
 | 方法 | 路径 | 状态 | 说明 |
 |---|---|---|---|
-| GET | `/api/v1/sessions` | 规划 | 按 `updated_at` 倒序，cursor 分页 |
-| POST | `/api/v1/sessions` | 规划 | 新建，返回 `{id, title}` |
-| PATCH | `/api/v1/sessions/{id}` | 规划 | 重命名 `{title}` |
-| DELETE | `/api/v1/sessions/{id}` | 规划 | 软删（`status='deleted'`） |
-| GET | `/api/v1/sessions/{id}/messages` | 规划 | 历史消息，cursor 分页 |
+| GET | `/api/v1/sessions` | 已实现 | 按 `updated_at` 倒序，cursor 分页（`limit≤50`） |
+| POST | `/api/v1/sessions` | 已实现 | 新建，body `{title?}`，HTTP 201，返回 `{id,title,createdAt,updatedAt}` |
+| PATCH | `/api/v1/sessions/{id}` | 已实现 | 重命名 `{title}` |
+| DELETE | `/api/v1/sessions/{id}` | 已实现 | 软删（`status='deleted'`），列表不再返回 |
+| GET | `/api/v1/sessions/{id}/messages` | 已实现 | 历史消息，`limit≤100`，`beforeId` 向前翻页，返回按 id 正序 |
+
+- 会话不存在与不属于本人**同码 404**，避免用会话 id 探测。
+- 首条用户消息自动生成标题（截断 30 字）；`updated_at` 每轮刷新，侧边栏按最近活跃排序。
+- 消息字段：`{id, role, content, status, intent, citations[], tools[], latencyMs, createdAt}`；
+  `status`：`ok / incomplete / blocked`。
 
 ### 2.4 对话（P2）
 
 | 方法 | 路径 | 状态 | 说明 |
 |---|---|---|---|
-| POST | `/api/v1/chat/stream` | 规划 | SSE，body `{sessionId, message, clientMsgId}`，见 §4 |
-| POST | `/api/v1/messages/{id}/feedback` | 规划 | `{rating: 1|-1, comment?}` |
+| POST | `/api/v1/chat/stream` | 已实现 | SSE，body `{sessionId, message, clientMsgId?}`，见 §4 |
+| POST | `/api/v1/messages/{id}/feedback` | 规划（P4） | `{rating: 1|-1, comment?}` |
+
+**可提前判定的失败在开流之前返回普通 envelope**（HTTP 可改）：
+
+| 场景 | HTTP | code |
+|---|---|---|
+| 未登录 / token 失效 | 401 | 2001 |
+| 会话不存在或不属于本人 | 404 | 2004 |
+| 同会话已有请求在处理，排队超 3s | 409 | 4009 |
+| `message` 为空或超 2000 字 | 400 | 1001 |
+
+`clientMsgId` 是幂等键：同一会话内重复提交同一个 id 会**重放上次结果**（`meta.replayed=true`），
+不重复调模型、不重复落库。
 
 ### 2.5 商品（P1）
 
@@ -211,8 +231,13 @@ GET /api/v1/sessions?limit=20&cursor=<上一页最后一条 id>
 | `delta` | `{text}` | 正文增量 |
 | `slots` | `{...}` | 槽位变更 |
 | `citation` | `{index, title, docId, snippet}` | 生成结束前批量推送 |
-| `done` | `{messageId, usage:{prompt, completion}, latencyMs}` | 正常结束 |
-| `error` | `{code, message, retryable}` | 异常兜底 |
+| `done` | `{messageId, usage:{prompt, completion}, latencyMs, status}` | 正常结束 |
+| `error` | `{code, message, retryable}` | 异常兜底（HTTP 仍 200） |
+
+实际实现的两处补充：
+
+- `meta` 里的 `messageId` 是**开流前就创建好的 assistant 消息 id**，因此中途断开也能按 id 找到那条 `incomplete` 消息；
+- `slots` 的 data 形如 `{changed:["价格上限"], values:{price_max:"¥1000"}}`，前端直接展示"已识别…"，不参与逻辑。
 
 帧格式示例：
 
@@ -226,6 +251,7 @@ data: {"messageId":"1024","usage":{"prompt":812,"completion":96},"latencyMs":184
 
 客户端要求：
 - 必须处理七种事件 + 网络中断；中断后按 `messageId` 拉取补全。
+- `done.status = incomplete` 表示这一轮没生成完，前端提供"重试本条"。
 - `delta` 追加到当前 assistant 消息；`done` 后落库。
 - 用户点"停止"即 abort，服务端收到断开后把该消息标 `incomplete`。
 
@@ -237,3 +263,4 @@ data: {"messageId":"1024","usage":{"prompt":812,"completion":96},"latencyMs":184
 |---|---|---|
 | v0.1.0 | P0 | 建立 envelope、错误码、`/health`、`/meta`；其余端点冻结字段待实现 |
 | v0.2.0 | P1 | 实现 `/auth/*`、`/products`、`/orders*`；补订单访问控制口径与字段清单 |
+| v0.3.0 | P2 | 实现 `/sessions*`、`/chat/stream`；补 SSE 开流前错误码、幂等重放、`slots` 载荷 |

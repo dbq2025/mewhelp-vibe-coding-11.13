@@ -542,5 +542,9 @@ CREATE INDEX idx_kb_chunks_tsv ON kb_chunks USING gin (to_tsvector('simple', con
 | 4 | 12 条物流轨迹 | 12 条（覆盖 shipped / delivered / refunding 三类订单） | 只按 shipped+delivered 取只有 10 条；退款中的订单也应有已发货记录，符合业务现实 |
 | 5 | `POST /auth/register` 返回 `{userId, token}` | 返回 `{token, expiresAt, user}` | 与 `/login` 同构，前端少一个分支；`user.id` 已含在 `user` 内 |
 | 6 | 订单详情用 404 表示不存在 | 统一 403 / 2003 | 计划 5.3 已定"越权与不存在同码"；订单号可枚举，404 等于确认存在性 |
+| 7 | 商品咨询走 **ReAct 多步**（tools ≤ 4 步） | 每轮**一次结构化规划**（意图+槽位+最多 2 步工具），再确定性执行 | 首 token 预算 2.5s，多一轮模型往返就要 0.8~1.2s；商品场景工具依赖只有一层（先搜再答），没有"观察后再决定"的必要。代价：跨工具链式推理（"找替代品再比价"）留到 P3 |
+| 8 | 同会话并发用 `pg_advisory_xact_lock` | 进程内 `asyncio.Lock` + 排队超时 409 | 一轮对话要多次 commit（用户消息→工具审计→助手消息），`xact` 锁每次 commit 就释放，挡不住整轮；会话级 `pg_advisory_lock` 又依赖"同一连接"，SQLAlchemy 在 commit 后把连接还池，锁会静默丢失。**单实例下进程内锁语义才正确**，多实例部署需换 Redis 锁（已写入 `agent/concurrency.py` 注释） |
+| 9 | 输出后置校验在生成结束后做 | 流式 **hold-back 40 字符 + 数字边界对齐** | 内容一旦流到浏览器就改不了，事后再校验只能改库、改不了用户已看到的。hold-back 保证任何 11 位订单号都完整落在同一段里再校验，代价是首字延迟增加约 40 字 |
+| 10 | SSE `error` 事件仅用于异常 | 另按 `blocked` 状态落库，且 `meta` 提前携带 messageId | 开流前必须建好 assistant 消息（否则中断后无从定位），所以 `meta` 就有了 id；被拦截的输入也走正常消息通道，前端才能显示"已拦截 + 重问" |
 
 ---

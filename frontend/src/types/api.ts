@@ -31,3 +31,34 @@ export interface MetaData {
   apiPrefix: string
   env: string
 }
+
+export interface SessionSummary {
+  id: string
+  title: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface MessageDto {
+  id: number
+  role: 'user' | 'assistant'
+  content: string
+  status: string
+  intent: string | null
+  citations: unknown[]
+  tools: unknown[]
+  latencyMs: number | null
+  createdAt: string
+}
+
+export interface AuthUser {
+  id: number
+  phone: string
+  nickname: string
+}
+
+export interface TokenData {
+  token: string
+  expiresAt: string
+  user: AuthUser
+}

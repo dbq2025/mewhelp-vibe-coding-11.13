@@ -5,6 +5,7 @@
 """
 
 import uuid
+from collections.abc import AsyncIterator
 
 import pytest
 from httpx import AsyncClient
@@ -22,7 +23,7 @@ def _random_phone() -> str:
 
 
 @pytest.fixture(autouse=True)
-async def _cleanup() -> None:
+async def _cleanup() -> AsyncIterator[None]:
     yield
     if not _created_phones:
         return

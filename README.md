@@ -3,8 +3,9 @@
 一个能完成**商品咨询、订单查询、售后受理**的电商客服 Agent，回答中的每个事实都能溯源到数据库或知识库。
 本项目用于跑通生产级 AI 应用的六条链路：意图识别、工具调用、检索增强、多轮记忆、流式体验、可观测与评测。
 
-> 当前阶段：**P1 数据与检索已完成**（P0 基座 + 演示数据 + 知识库灌库 + 商品/订单/鉴权接口 + 越权拦截）。
-> P1 的检索验收依赖 Embedding API Key，填入 `.env` 后执行 `scripts/eval_retrieval.py`。
+> 当前阶段：**P2 对话主链路已完成**（P0 基座 + P1 数据检索 + P2 流式对话/多轮/会话历史）。
+> 验收实测：3 轮指代接续正确、首 token 中位数 1.16s、同会话并发串行、中断落 `incomplete`，
+> 数据见 `docs/eval.md`。
 > 范围与验收见 `docs/IMPLEMENTATION_PLAN.md`，工程规范见 `agent.md`，接口契约见 `docs/api.md`。
 
 ---
@@ -15,7 +16,7 @@
 |---|---|
 | 后端 | Python 3.13 · FastAPI · SQLAlchemy 2.0 async · Alembic |
 | 数据库 | PostgreSQL 16 + pgvector（Docker） |
-| Agent | LangGraph（P2 起）· DeepSeek `deepseek-chat` · bge-m3（1024 维） |
+| Agent | LangGraph 1.2（guard → understand → 路由 → 工具/检索 → compose）· DeepSeek `deepseek-chat` · bge-m3 |
 | 前端 | Vue 3.5 · Vite · TypeScript · Tailwind · Pinia · vue-router |
 | 包管理 | 后端 `uv` · 前端 `npm` |
 
@@ -91,7 +92,7 @@ backend/
   src/app/
     core/     配置、日志、错误码、trace、依赖注入
     api/      routers（薄）+ schemas
-    agent/    图、节点、状态、prompt（P2 起）
+    agent/    图、节点、状态、prompt、工具、守卫、执行器（P2）
     tools/    5 个工具（P3 起）
     rag/      分块 / 向量化 / 检索 / 重排
     domain/   services + policies（业务规则与鉴权）
@@ -115,10 +116,45 @@ infra/db/init/001_extensions.sql   首启建 vector / pg_trgm
 |---|---|---|
 | P0 | 基座与契约 | ✅ 已完成 |
 | P1 | 数据、检索与只读 API | ✅ 代码与接口已完成（检索验收待 API Key） |
-| P2 | 对话主链路（SSE + 多轮） | 待开始 |
+| P2 | 对话主链路（SSE + 多轮 + 会话历史） | ✅ 已完成（2026-11-13） |
 | P3 | 业务闭环（工具 / 订单 / 售后） | 待开始 |
 | P4 | 质量、安全与可观测 | 待开始 |
 | P5 | 体验与交付 | 待开始 |
+
+---
+
+## 对话链路（P2）
+
+```bash
+# 登录拿 token（后续请求带 Authorization: Bearer <token>）
+curl -s -X POST http://127.0.0.1:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"phone":"13800000001","password":"Test123456"}'
+
+# 新建会话
+curl -s -X POST http://127.0.0.1:8000/api/v1/sessions \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{}'
+
+# 流式对话（SSE 七事件：meta/tool/delta/citation/slots/done/error）
+curl -N -X POST http://127.0.0.1:8000/api/v1/chat/stream \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"sessionId":"<id>","message":"1000 以内的降噪耳机有哪些","clientMsgId":"c-1"}'
+```
+
+一轮对话里发生了什么（`agent/graph.py`）：
+
+```
+guard → understand → 条件路由
+        ├─ sales_agent  商品：search_products / get_product / compare_products
+        ├─ order_flow   订单：鉴权 → get_order → get_shipment（确定性链路，不让模型自由编排）
+        ├─ retrieve     政策：向量检索 + 引用编号
+        ├─ clarify      缺槽/低置信：追问（连续 2 次低置信 → 转人工）
+        └─ handoff      建工单
+     → compose（流式生成 + hold-back 输出校验） → 落库（含不完整内容）
+```
+
+前端：`npm run dev` 后打开 `http://localhost:5173/login`，用演示账号登录即可对话。
+侧边栏切换/删除会话、刷新后历史完整；生成中可"停止"，已生成内容会标为「未完成」并提供「重试本条」。
 
 ---
 

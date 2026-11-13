@@ -50,11 +50,22 @@ class Settings(BaseSettings):
     session_lock_wait_seconds: float = 3.0
     history_window_turns: int = 10
     intent_confidence_threshold: float = 0.60
+    # 输入守卫：超过该长度直接拦截，避免把整篇文档当提问塞进 prompt
+    guard_max_input_chars: int = 600
+    # 同一会话连续低置信达到该次数，主动建议转人工（计划 4.2）
+    low_confidence_limit: int = 2
+    # 工具候选商品保留数量：多轮指代（"第二个多少钱"）靠它定位
+    candidate_keep: int = 5
 
     # --- LLM / Embedding（P1/P2 使用）---
     llm_base_url: str = "https://api.deepseek.com/v1"
     llm_api_key: str = ""
     llm_model: str = "deepseek-chat"
+    llm_temperature: float = 0.3
+    llm_max_tokens: int = 700
+    llm_max_retries: int = 2
+    # 意图理解用短输出即可，限制长度能明显压低首 token 前的等待
+    understand_max_tokens: int = 400
     embedding_base_url: str = "https://api.siliconflow.cn/v1"
     embedding_api_key: str = ""
     embedding_model: str = "BAAI/bge-m3"

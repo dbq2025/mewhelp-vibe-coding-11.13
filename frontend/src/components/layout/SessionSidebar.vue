@@ -3,7 +3,15 @@ import { storeToRefs } from 'pinia'
 
 import { useSessionStore } from '@/stores/session'
 
-const { sessions, currentId, isEmpty } = storeToRefs(useSessionStore())
+const emit = defineEmits<{
+  create: []
+  select: [id: string]
+  remove: [id: string]
+  logout: []
+}>()
+
+const sessionStore = useSessionStore()
+const { sessions, currentId, isEmpty, loading } = storeToRefs(sessionStore)
 </script>
 
 <template>
@@ -18,9 +26,8 @@ const { sessions, currentId, isEmpty } = storeToRefs(useSessionStore())
     <div class="p-3">
       <button
         type="button"
-        class="w-full cursor-not-allowed rounded-lg border border-line bg-canvas px-3 py-2 text-xs text-muted"
-        disabled
-        title="会话创建将在 P2 接入"
+        class="w-full rounded-lg border border-line bg-canvas px-3 py-2 text-xs text-ink hover:border-brand hover:text-brand"
+        @click="emit('create')"
       >
         + 新建会话
       </button>
@@ -28,32 +35,57 @@ const { sessions, currentId, isEmpty } = storeToRefs(useSessionStore())
 
     <nav class="flex-1 overflow-y-auto px-2 pb-3">
       <p
-        v-if="isEmpty"
+        v-if="loading && isEmpty"
+        class="px-2 py-6 text-center text-xs text-muted"
+      >
+        加载中…
+      </p>
+      <p
+        v-else-if="isEmpty"
         class="px-2 py-6 text-center text-xs leading-relaxed text-muted"
       >
-        还没有会话记录<br>P2 起自动保存历史对话
+        还没有会话记录<br>发第一条消息就会自动保存
       </p>
       <ul
         v-else
         class="space-y-1"
       >
         <li
-          v-for="session in sessions"
-          :key="session.id"
+          v-for="item in sessions"
+          :key="item.id"
+          class="group flex items-center gap-1"
         >
           <button
             type="button"
-            class="w-full truncate rounded-lg px-2 py-2 text-left text-xs"
-            :class="session.id === currentId ? 'bg-brand-soft text-brand' : 'text-ink hover:bg-canvas'"
+            class="min-w-0 flex-1 truncate rounded-lg px-2 py-2 text-left text-xs"
+            :class="item.id === currentId ? 'bg-brand-soft text-brand' : 'text-ink hover:bg-canvas'"
+            :title="item.title"
+            @click="emit('select', item.id)"
           >
-            {{ session.title }}
+            {{ item.title }}
+          </button>
+          <button
+            type="button"
+            class="hidden shrink-0 rounded px-1 text-xs text-muted group-hover:block hover:text-danger"
+            title="删除会话"
+            aria-label="删除会话"
+            @click="emit('remove', item.id)"
+          >
+            ×
           </button>
         </li>
       </ul>
     </nav>
 
-    <div class="border-t border-line px-4 py-3 text-xs text-muted">
-      未登录 · 游客模式
+    <div class="flex items-center justify-between border-t border-line px-4 py-3 text-xs text-muted">
+      <span>已登录</span>
+      <button
+        type="button"
+        class="hover:text-ink"
+        @click="emit('logout')"
+      >
+        退出
+      </button>
     </div>
   </aside>
 </template>
