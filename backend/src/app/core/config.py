@@ -1,0 +1,66 @@
+"""应用配置：唯一的环境变量入口。
+
+约定（agent.md §1）：所有魔法值（上限、超时、步数）集中在 Settings 里，
+业务代码通过 `get_settings()` 读取，不在函数体里散落字面量。
+"""
+
+from functools import lru_cache
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=(".env", "../.env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+    )
+
+    # --- 应用 ---
+    app_name: str = "ecom-copilot"
+    app_version: str = "0.1.0"
+    env: str = "local"
+    log_level: str = "INFO"
+    log_json: bool = False
+    api_prefix: str = "/api/v1"
+    cors_origins: list[str] = Field(default=["http://localhost:5173", "http://127.0.0.1:5173"])
+
+    # --- 数据库 ---
+    pg_dsn: str = "postgresql+asyncpg://app:app_dev_pwd@127.0.0.1:5433/ecom"
+    db_pool_size: int = 5
+    db_max_overflow: int = 5
+    db_echo: bool = False
+
+    # --- 鉴权 ---
+    # 仅本地开发默认值；生产必须通过 JWT_SECRET 环境变量覆盖（.env.example 有说明）
+    jwt_secret: str = "dev-only-change-me"  # noqa: S105
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 60 * 24 * 7
+
+    # --- 限流（进程内滑动窗口，P0 只留配置位）---
+    rate_limit_per_minute: int = 30
+
+    # --- Agent 预算（P2/P3 使用，先固化口径）---
+    max_tool_steps: int = 4
+    llm_timeout_seconds: float = 30.0
+    tool_timeout_seconds: float = 8.0
+    prompt_token_budget: int = 6000
+    session_lock_wait_seconds: float = 3.0
+    history_window_turns: int = 10
+    intent_confidence_threshold: float = 0.60
+
+    # --- LLM / Embedding（P1/P2 使用）---
+    llm_base_url: str = "https://api.deepseek.com/v1"
+    llm_api_key: str = ""
+    llm_model: str = "deepseek-chat"
+    embedding_base_url: str = "https://api.siliconflow.cn/v1"
+    embedding_api_key: str = ""
+    embedding_model: str = "BAAI/bge-m3"
+    embedding_dim: int = 1024
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    return Settings()

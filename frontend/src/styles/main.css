@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * 颜色令牌：组件只引语义名（bg-canvas / text-muted），改主题只改这里。
+ * 已预留暗色扩展位（加 [data-theme='dark'] 覆盖同名变量即可）。
+ */
+:root {
+  --c-canvas: #f6f7f9;
+  --c-surface: #ffffff;
+  --c-line: #e4e7ec;
+  --c-ink: #101828;
+  --c-muted: #667085;
+  --c-brand: #1f6feb;
+  --c-brand-ink: #ffffff;
+  --c-brand-soft: #e8f0fe;
+  --c-ok: #12a150;
+  --c-warn: #c2740b;
+  --c-danger: #d92d20;
+}
+
+@layer base {
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-canvas font-sans text-ink antialiased;
+  }
+}
