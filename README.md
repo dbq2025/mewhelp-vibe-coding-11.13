@@ -62,6 +62,7 @@ uv run alembic downgrade -1                        # 验证可回滚
 
 # 前端（在 frontend/）
 npm run lint
+npm run test           # vitest：组件渲染 + composable 状态机
 npm run build          # vue-tsc 类型检查 + 构建
 
 # 数据库

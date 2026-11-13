@@ -260,5 +260,6 @@ curl /health                      → {"db":"ok","vector":"ok","vectorVersion":"
 uv run ruff check . / mypy src    → All checks passed / no issues in 33 files
 uv run pytest -q                  → 11 passed
 npm run lint / npm run build      → 0 error / built
+npm run test                      → 3 passed（ChatView 渲染 + 健康状态三态）
 curl localhost:5173/health        → 经 Vite 代理返回后端 JSON（前后端联通）
 ```
