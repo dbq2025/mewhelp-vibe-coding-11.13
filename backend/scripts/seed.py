@@ -350,6 +350,8 @@ async def _seed_after_sales(
             "type": "return",
             "status": "pending",
             "reason": "降噪效果不符合预期，申请退货",
+            # 种子单标记来源，便于和"对话/接口真实建的单"区分
+            "source": "seed",
         }
         stmt = (
             insert(AfterSale)

@@ -3,9 +3,9 @@
 一个能完成**商品咨询、订单查询、售后受理**的电商客服 Agent，回答中的每个事实都能溯源到数据库或知识库。
 本项目用于跑通生产级 AI 应用的六条链路：意图识别、工具调用、检索增强、多轮记忆、流式体验、可观测与评测。
 
-> 当前阶段：**P2 对话主链路已完成**（P0 基座 + P1 数据检索 + P2 流式对话/多轮/会话历史）。
-> 验收实测：3 轮指代接续正确、首 token 中位数 1.16s、同会话并发串行、中断落 `incomplete`，
-> 数据见 `docs/eval.md`。
+> 当前阶段：**P3 业务闭环已完成**（P0 基座 + P1 数据检索 + P2 流式对话 + P3 售后受理/转人工/混合检索）。
+> 验收实测：20 条场景 + 1 条数据库校验 **21/21 通过**，3 轮指代接续正确，首 token 中位数 1.16s，
+> 售后"出卡片 → 确认 → 建单 → 重复确认幂等"整条链路可跑，数据见 `docs/eval.md`。
 > 范围与验收见 `docs/IMPLEMENTATION_PLAN.md`，工程规范见 `agent.md`，接口契约见 `docs/api.md`。
 
 ---
@@ -78,6 +78,7 @@ uv run python scripts/seed.py --check        # 只打行数
 uv run python scripts/ingest_kb.py --dry-run # 只分块，不调 embedding（无需 key）
 uv run python scripts/ingest_kb.py           # 灌库（需要 EMBEDDING_API_KEY）
 uv run python scripts/eval_retrieval.py      # 10 条 query 的 hit@3，写入 docs/eval.md
+uv run python scripts/eval_scenarios.py      # 20 条业务场景验收（需先起后端，用真实模型）
 
 # 数据库
 docker compose exec db psql -U app -d ecom
@@ -117,9 +118,50 @@ infra/db/init/001_extensions.sql   首启建 vector / pg_trgm
 | P0 | 基座与契约 | ✅ 已完成 |
 | P1 | 数据、检索与只读 API | ✅ 代码与接口已完成（检索验收待 API Key） |
 | P2 | 对话主链路（SSE + 多轮 + 会话历史） | ✅ 已完成（2026-11-13） |
-| P3 | 业务闭环（工具 / 订单 / 售后） | 待开始 |
+| P3 | 业务闭环（售后受理 / 转人工 / 混合检索） | ✅ 已完成（2026-11-13） |
 | P4 | 质量、安全与可观测 | 待开始 |
 | P5 | 体验与交付 | 待开始 |
+
+---
+
+## 售后受理（P3）
+
+对话里说"我要退货，订单 20261101008"，服务端**不会直接建单**：
+
+```
+用户：我要退货，订单 20261101008
+客服：我核对到这笔订单：
+      · 订单号：20261101008（已发货）
+      · 商品：极光 65W 双口充电器×1
+      · 金额：¥159.00
+      · 申请事项：退货退款
+      确认无误的话回复「确认提交」…            [确认提交] [先不申请]
+```
+
+点"确认提交"才真的建单（也可以直接打字），返回工单号 `AS20261113xxxx`；
+重复点只会返回**同一张单**，不会产生第二张。
+
+也可绕过对话直接调接口：
+
+```bash
+# 申请售后（幂等，同订单同类型只留一张未完结单）
+curl -s -X POST http://127.0.0.1:8000/api/v1/after-sales \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"orderNo":"20261101008","type":"return","reason":"耳机有杂音"}'
+
+# 我的售后单
+curl -s http://127.0.0.1:8000/api/v1/after-sales -H "Authorization: Bearer $TOKEN"
+
+# 转人工（同一会话幂等）/ 状态流转
+curl -s -X POST http://127.0.0.1:8000/api/v1/handoff \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"sessionId":"<id>","reason":"想找人核实"}'
+curl -s -X PATCH http://127.0.0.1:8000/api/v1/handoff/HO202611130001 \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"status":"accepted"}'
+```
+
+**可受理判定在代码里，不在 prompt 里**：未付款/待发货/已关闭/退款中一律不收；
+超 7 天无理由仅受理质量问题（关键词判定）。判定表见 `docs/api.md §2.6.1`。
 
 ---
 

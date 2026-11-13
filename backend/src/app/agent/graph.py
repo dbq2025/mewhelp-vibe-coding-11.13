@@ -3,6 +3,7 @@
     START → guard ─┬─ blocked ─────────────────────────→ static → END
                    └─ continue → understand ─┬─ clarify → clarify → static
                                              ├─ handoff → handoff → static
+                                             ├─ after_sales → after_sales → static
                                              ├─ sales_agent ─┐
                                              ├─ order_flow ──┼→ compose → END
                                              ├─ retrieve ────┤
@@ -26,6 +27,7 @@ from app.agent.nodes.actions import (
     retrieve_node,
     sales_node,
 )
+from app.agent.nodes.after_sales import after_sales_node
 from app.agent.nodes.compose import compose_node, static_node
 from app.agent.nodes.guard import guard_node, guard_route
 from app.agent.nodes.understand import route_after_understand, understand_node
@@ -40,6 +42,7 @@ def build_graph() -> StateGraph[GraphState]:
     graph.add_node("sales_agent", sales_node)
     graph.add_node("order_flow", order_node)
     graph.add_node("retrieve", retrieve_node)
+    graph.add_node("after_sales", after_sales_node)
     graph.add_node("handoff", handoff_node)
     graph.add_node("clarify", clarify_node)
     graph.add_node("compose", compose_node)
@@ -60,10 +63,12 @@ def build_graph() -> StateGraph[GraphState]:
             Route.SALES.value: "sales_agent",
             Route.ORDER.value: "order_flow",
             Route.RETRIEVE.value: "retrieve",
+            Route.AFTER_SALES.value: "after_sales",
             Route.CHITCHAT.value: "compose",
         },
     )
     graph.add_edge("clarify", "static")
+    graph.add_edge("after_sales", "static")
     graph.add_edge("handoff", "static")
     graph.add_edge("sales_agent", "compose")
     graph.add_edge("order_flow", "compose")

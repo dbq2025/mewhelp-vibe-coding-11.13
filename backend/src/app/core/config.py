@@ -79,6 +79,12 @@ class Settings(BaseSettings):
     rag_chunk_size: int = 320
     rag_chunk_overlap: int = 70
     rag_top_k: int = 5
+    # 检索模式：hybrid = 向量 + 关键词 RRF（默认）；vector = 纯向量（对照评测用）
+    rag_search_mode: str = "hybrid"
+    # RRF 平滑常数（业界常用 60）：值越大，排名差距被压得越平
+    rag_rrf_k: int = 60
+    # 每一路召回的候选数：太大会引入噪声，太小会让融合失效
+    rag_keyword_candidates: int = 20
     # 余弦距离阈值：超过该值视为不相关，宁可答"没查到"也不硬凑引用（计划 4.3）
     rag_max_distance: float = 0.45
 

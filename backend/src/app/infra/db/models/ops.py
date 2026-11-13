@@ -17,14 +17,28 @@ from app.infra.db.base import Base
 
 class HandoffTicket(Base):
     __tablename__ = "handoff_tickets"
+    __table_args__ = (
+        # 同一会话同时只能有一张未完结的转人工单：用户连点三下"转人工"不该开三张
+        Index(
+            "uk_handoff_open_per_session",
+            "session_id",
+            unique=True,
+            postgresql_where=text("status in ('pending','accepted')"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    ticket_no: Mapped[str] = mapped_column(String(32), unique=True)
     session_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     reason: Mapped[str] = mapped_column(String(200), default="")
     status: Mapped[str] = mapped_column(String(20), default="pending")
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
 
 
 class LlmUsage(Base):

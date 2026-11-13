@@ -148,7 +148,29 @@ async def understand_node(state: GraphState) -> dict[str, object]:
     merged_slots, rule_changed = slot_utils.merge_slots(merged_slots, rule_slots)
     changed = sorted(set(changed) | set(rule_changed))
 
-    # 4) 低置信连续计数（存在 slots 的内部键里，不额外加表）
+    # 4) 待确认动作：写操作前的二次确认必须走规则，不能交给模型判"用户同意了吗"
+    action: str | None = None
+    pending = merged_slots.get(slot_utils.PENDING_ACTION)
+    if isinstance(pending, dict) and pending.get("kind") == "after_sales":
+        verdict = slot_utils.classify_confirmation(user_text)
+        if verdict == "confirm":
+            action = "commit"
+        elif verdict == "deny":
+            action = "cancel"
+        else:
+            # 这轮说了别的（改口类型、问政策、换话题）→ 作废待确认，按新意图走
+            merged_slots.pop(slot_utils.PENDING_ACTION, None)
+    # 已经建过单的用户又说了句"确认"/"算了"：走幂等或撤销分支，
+    # 而不是当成听不懂把他推给人工（实测过：重复确认会让低置信计数直接兜到转人工）
+    elif isinstance(merged_slots.get("last_after_sales"), dict):
+        verdict = slot_utils.classify_confirmation(user_text)
+        if verdict == "confirm":
+            action = "commit"
+        elif verdict == "deny":
+            # 单子已经建了，撤销不是"不提交"，必须走人工，不能谎称已取消
+            action = "revoke"
+
+    # 5) 低置信连续计数（存在 slots 的内部键里，不额外加表）
     streak = int(current_slots.get("_low_conf") or 0)
     if confidence < settings.intent_confidence_threshold:
         streak += 1
@@ -156,7 +178,7 @@ async def understand_node(state: GraphState) -> dict[str, object]:
         streak = 0
     merged_slots["_low_conf"] = streak
 
-    # 5) 路由
+    # 6) 路由
     route, clarify_question = _decide_route(
         intent=intent,
         confidence=confidence,
@@ -164,6 +186,7 @@ async def understand_node(state: GraphState) -> dict[str, object]:
         clarify_question=clarify_question,
         streak=streak,
         tool_plan=tool_plan,
+        action=action,
     )
 
     emit(
@@ -186,6 +209,7 @@ async def understand_node(state: GraphState) -> dict[str, object]:
         "low_confidence_streak": streak,
         "tool_plan": tool_plan,
         "route": route,
+        "action": action,
         "clarify_question": clarify_question,
     }
 
@@ -198,10 +222,22 @@ def _decide_route(
     clarify_question: str | None,
     streak: int,
     tool_plan: list[dict[str, Any]],
+    action: str | None = None,
 ) -> tuple[str, str | None]:
     settings = get_settings()
 
+    # 二次确认的优先级最高：用户只说"确认"，模型给低置信也不该被反问打断
+    if action in ("commit", "cancel", "revoke"):
+        return Route.AFTER_SALES.value, None
+
     if confidence < settings.intent_confidence_threshold:
+        # 规则已经抽到订单号时，唯一缺的信息其实已经有了，此时再问"哪一笔订单"
+        # 就是明知故问（实测：多意图问句里模型只给 0.55 的置信度，用户被反问一次）
+        if slots.get("order_no") and intent in ORDER_INTENTS | {Intent.AFTER_SALES}:
+            return (
+                Route.AFTER_SALES.value if intent == Intent.AFTER_SALES else Route.ORDER.value,
+                None,
+            )
         if streak >= settings.low_confidence_limit:
             # 连续两次听不懂就别再追问了，直接给人工出口（计划 4.2）
             return Route.HANDOFF.value, None
@@ -214,6 +250,12 @@ def _decide_route(
     if intent == Intent.HANDOFF:
         return Route.HANDOFF.value, None
 
+    if intent == Intent.AFTER_SALES:
+        # 售后有独立链路（受理判定 + 二次确认 + 建单），不能混进"只读查询"里
+        if slots.get("order_no") or slots.get("last_order_no"):
+            return Route.AFTER_SALES.value, None
+        return Route.CLARIFY.value, clarify_question or _CLARIFY_BY_INTENT[intent]
+
     if intent in ORDER_INTENTS:
         if slots.get("order_no"):
             return Route.ORDER.value, None
@@ -224,7 +266,7 @@ def _decide_route(
             return Route.ORDER.value, None
         return Route.CLARIFY.value, clarify_question or _CLARIFY_BY_INTENT[intent]
 
-    if intent in RETRIEVAL_INTENTS:
+    if intent in RETRIEVAL_INTENTS and intent != Intent.AFTER_SALES:
         return Route.RETRIEVE.value, None
 
     if intent in (Intent.PRODUCT_SEARCH, Intent.PRODUCT_INFO):

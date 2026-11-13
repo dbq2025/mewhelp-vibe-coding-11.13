@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.routers import auth, chat, meta, orders, products
+from app.api.routers import after_sales, auth, chat, meta, orders, products
 
 api_router = APIRouter()
 api_router.include_router(meta.router)
@@ -10,3 +10,4 @@ api_router.include_router(auth.router)
 api_router.include_router(products.router)
 api_router.include_router(orders.router)
 api_router.include_router(chat.router)
+api_router.include_router(after_sales.router)

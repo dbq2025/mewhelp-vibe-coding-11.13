@@ -39,6 +39,7 @@ class Route(StrEnum):
     SALES = "sales_agent"
     ORDER = "order_flow"
     RETRIEVE = "retrieve"
+    AFTER_SALES = "after_sales"
     CHITCHAT = "chitchat"
     HANDOFF = "handoff"
     BLOCKED = "blocked"
@@ -73,6 +74,8 @@ class GraphState(TypedDict, total=False):
 
     # 路由与执行
     route: str
+    # 待确认动作的处理结果：commit / cancel / ask（售后二次确认用）
+    action: str | None
     facts: list[dict[str, Any]]
     tool_trace: list[ToolCall]
     retrieved: list[dict[str, Any]]

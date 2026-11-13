@@ -199,6 +199,15 @@ async def save_turn_state(
     await session.commit()
 
 
+async def set_handoff_status(
+    session: AsyncSession, *, session_id: UUID, status: str | None
+) -> None:
+    """同步会话上的转人工状态（前端据此显示"客服将在 X 分钟内接入 / 已接入"）。"""
+    state = await get_state(session, session_id=session_id)
+    state.handoff_status = status
+    await session.commit()
+
+
 async def count_messages(session: AsyncSession, session_id: UUID) -> int:
     return int(
         await session.scalar(

@@ -36,6 +36,9 @@ class RunContext:
     # 本轮被授权访问的订单号（输出校验时保留，其余一律改写）
     allowed_order_nos: set[str] = field(default_factory=set)
     citations: list[dict[str, Any]] = field(default_factory=list)
+    # 本轮已执行的工具数：超过 settings.max_tool_steps 就地降级，
+    # 而不是让图继续往下走（防"工具链越跑越长"和死循环）
+    tool_steps: int = 0
 
 
 _ctx: ContextVar[RunContext | None] = ContextVar("agent_run_context", default=None)

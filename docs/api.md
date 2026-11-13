@@ -1,6 +1,6 @@
 # API 契约 · ecom-copilot
 
-> 版本：v0.3.0（P0 + P1 + P2）
+> 版本：v0.4.0（P0 + P1 + P2 + P3）
 > 本文件是**前后端唯一契约**。改动接口必须先改本文件，再改代码（agent.md §6）。
 > 表内 `状态` 列含义：`已实现` = 当前可调用（P0 基础设施 / P1 数据接口）；`规划` = 后续阶段实现，字段已冻结。
 
@@ -168,8 +168,10 @@ GET /api/v1/sessions?limit=20&cursor=<上一页最后一条 id>
 | GET | `/api/v1/orders` | 已实现 | 我的订单（必须登录，只返回本人） |
 | GET | `/api/v1/orders/{orderNo}?phoneTail=` | 已实现 | 详情，带鉴权；越权 2003 |
 | GET | `/api/v1/orders/{orderNo}/shipment` | 已实现 | 承运商 + 轨迹；`data=null` 表示未发货 |
-| POST | `/api/v1/after-sales` | 规划（P3） | `{orderNo, type, reason}`，返回工单号 |
-| POST | `/api/v1/handoff` | 规划（P3） | `{sessionId, reason}`，建转人工工单 |
+| POST | `/api/v1/after-sales` | 已实现（P3） | `{orderNo, type, reason?, phoneTail?}`，幂等建单 |
+| GET | `/api/v1/after-sales` | 已实现（P3） | 我的售后单（最近 10 张） |
+| POST | `/api/v1/handoff` | 已实现（P3） | `{sessionId, reason?}`，幂等建转人工工单 |
+| PATCH | `/api/v1/handoff/{ticketNo}` | 已实现（P3） | `{status: accepted\|closed}`，状态机流转 |
 
 **订单访问控制的确定口径**
 
@@ -185,6 +187,41 @@ GET /api/v1/sessions?limit=20&cursor=<上一页最后一条 id>
 订单详情字段：`orderNo, status, totalCents, itemCount, createdAt, paidAt, receiverPhoneTail, receiverAddressMasked, items[], shipment|null`。
 `receiverPhoneTail` 只有 4 位，地址为脱敏串，**响应中不出现完整手机号与详细地址**。
 订单状态枚举：`pending_pay / pending_ship / shipped / delivered / refunding / closed`。
+
+### 2.6.1 售后受理（P3）
+
+**两个 POST 都要求登录**：建单是写操作，会进入真实退款/客服流程，必须有账号可追溯。
+查单可以游客，建单不行。
+
+`POST /api/v1/after-sales` 请求体与返回：
+
+```json
+{ "orderNo": "20261101008", "type": "return", "reason": "耳机有杂音" }
+
+{ "ticketNo": "AS202611130004", "orderNo": "20261101008",
+  "type": "return", "typeLabel": "退货退款",
+  "status": "pending", "statusLabel": "待受理",
+  "createdAt": "2026-11-13T05:52:31Z", "created": true }
+```
+
+**可受理判定（代码判定，不由模型决定）**
+
+| 订单状态 | 退货 / 换货 | 维修 | 说明 |
+|---|---|---|---|
+| `pending_pay` | ❌ | ❌ | 未付款，无需售后 |
+| `pending_ship` | ❌ | ❌ | 引导直接取消订单（更快，不占售后工单） |
+| `shipped` / `delivered` | ✅ | ✅ | 7 天无理由窗口内 |
+| `refunding` | ❌ | ❌ | 已有退款在途，返回提示 |
+| `closed` | ❌ | ❌ | 不可售后 |
+
+- 超 7 天的退货/换货仅在 `reason` 命中质量问题词表时受理（杂音/破损/不充电/黑屏…）。
+- 不可受理返回 **400 / 1001**，`message` 是给人看的一句话，不是错误栈。
+- **幂等**：同订单同类型已有 `pending|processing` 单时返回那张，`created=false`，HTTP 仍 201。
+  数据库侧有部分唯一索引 `uk_after_sales_open` 兜底，并发下不会产生两张。
+
+`POST /api/v1/handoff` 返回 `{ticketNo, sessionId, status, statusLabel, reason, createdAt, created}`。
+同一会话只允许一张未完结单（`uk_handoff_open_per_session`），重复调用返回已有单。
+状态机：`pending → accepted → closed`，也允许 `pending → closed`；回退与原地跳转一律 **400 / 1001**。
 
 ### 2.7 运营（P4）
 
@@ -206,6 +243,7 @@ GET /api/v1/sessions?limit=20&cursor=<上一页最后一条 id>
 | 3001 | 模型超时 | 504 |
 | 3002 | 上游限流 | 429 |
 | 3003 | 内容被安全策略拦截 | 200（SSE `error` 事件） |
+| 4008 | 工具调用超出本轮预算（降级为"查不到"，不中断对话） | 200（SSE `tool` 事件） |
 | 4009 | 会话忙（同会话并发） | 409 |
 | 5000 | 内部错误 | 500 |
 
@@ -231,8 +269,21 @@ GET /api/v1/sessions?limit=20&cursor=<上一页最后一条 id>
 | `delta` | `{text}` | 正文增量 |
 | `slots` | `{...}` | 槽位变更 |
 | `citation` | `{index, title, docId, snippet}` | 生成结束前批量推送 |
+| `action` | `{action:{kind, ...}}` | 待确认动作 / 写操作结果（见下） |
 | `done` | `{messageId, usage:{prompt, completion}, latencyMs, status}` | 正常结束 |
 | `error` | `{code, message, retryable}` | 异常兜底（HTTP 仍 200） |
+
+`action` 事件的四种 `kind`（P3）：
+
+| kind | 触发 | 关键字段 |
+|---|---|---|
+| `after_sales_confirm` | 售后信息齐全待确认 | `orderNo, type, typeLabel, summary, confirmText, cancelText` |
+| `after_sales_done` | 建单成功 | `ticketNo, status, statusLabel, created`（`created=false` 即幂等命中） |
+| `after_sales_rejected` | 不可受理 | `typeLabel, message`（原因） |
+| `handoff_ticket` | 转人工建单 | `ticketNo, status, statusLabel, created` |
+
+前端拿到 `after_sales_confirm` 必须把 `summary` 与两个按钮一起渲染——**写操作要让用户看清提交什么**，
+点按钮等于发送 `confirmText`（默认"确认提交"）文本，服务端靠规则识别，不靠模型理解"用户同意了"。
 
 实际实现的两处补充：
 
@@ -250,7 +301,7 @@ data: {"messageId":"1024","usage":{"prompt":812,"completion":96},"latencyMs":184
 ```
 
 客户端要求：
-- 必须处理七种事件 + 网络中断；中断后按 `messageId` 拉取补全。
+- 必须处理八种事件（含 `action`）+ 网络中断；中断后按 `messageId` 拉取补全。
 - `done.status = incomplete` 表示这一轮没生成完，前端提供"重试本条"。
 - `delta` 追加到当前 assistant 消息；`done` 后落库。
 - 用户点"停止"即 abort，服务端收到断开后把该消息标 `incomplete`。
@@ -264,3 +315,4 @@ data: {"messageId":"1024","usage":{"prompt":812,"completion":96},"latencyMs":184
 | v0.1.0 | P0 | 建立 envelope、错误码、`/health`、`/meta`；其余端点冻结字段待实现 |
 | v0.2.0 | P1 | 实现 `/auth/*`、`/products`、`/orders*`；补订单访问控制口径与字段清单 |
 | v0.3.0 | P2 | 实现 `/sessions*`、`/chat/stream`；补 SSE 开流前错误码、幂等重放、`slots` 载荷 |
+| v0.4.0 | P3 | 实现 `/after-sales`、`/handoff`；补可受理判定表、`action` 事件、错误码 4008 |

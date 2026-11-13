@@ -30,6 +30,11 @@ function isLive(index: number, message: ChatMessage): boolean {
   return props.streaming && index === lastIndex.value && message.role === 'assistant'
 }
 
+/** 只有最后一轮的卡片可点，历史卡片只读——避免对已处理的动作重复提交 */
+function actionable(index: number): boolean {
+  return index === lastIndex.value && !props.streaming
+}
+
 function toolLabel(name: string): string {
   const labels: Record<string, string> = {
     search_products: '商品检索',
@@ -38,6 +43,7 @@ function toolLabel(name: string): string {
     get_order: '订单查询',
     get_shipment: '物流查询',
     search_policy: '政策检索',
+    create_after_sales: '提交售后',
   }
   return labels[name] ?? name
 }
@@ -115,6 +121,70 @@ function toolLabel(name: string): string {
             v-if="isLive(index, message) && message.content === ''"
             class="text-muted"
           >…</span>
+        </div>
+
+
+        <!-- 待确认动作 / 写操作结果：售后与转人工都必须让用户看见"提交了什么" -->
+        <div
+          v-if="message.role === 'assistant' && message.action"
+          class="mt-3 rounded-xl border px-3 py-2.5 text-xs"
+          :class="{
+            'border-brand/40 bg-brand-soft/40': message.action.kind === 'after_sales_confirm',
+            'border-ok/30 bg-ok/5': message.action.kind === 'after_sales_done',
+            'border-warn/30 bg-warn/5': message.action.kind === 'after_sales_rejected',
+            'border-line bg-canvas': message.action.kind === 'handoff_ticket',
+          }"
+        >
+          <template v-if="message.action.kind === 'after_sales_confirm'">
+            <p class="mb-1 font-medium text-ink">
+              待确认 · {{ message.action.typeLabel }}
+            </p>
+            <pre class="whitespace-pre-wrap font-sans text-[11px] leading-relaxed text-muted">{{ message.action.summary }}</pre>
+            <div
+              v-if="actionable(index)"
+              class="mt-2 flex gap-2"
+            >
+              <button
+                type="button"
+                class="rounded-md bg-brand px-2.5 py-1 text-[11px] font-medium text-white hover:opacity-90"
+                @click="emit('pick', message.action.confirmText)"
+              >
+                {{ message.action.confirmText }}
+              </button>
+              <button
+                type="button"
+                class="rounded-md border border-line px-2.5 py-1 text-[11px] text-muted hover:border-brand hover:text-brand"
+                @click="emit('pick', message.action.cancelText)"
+              >
+                {{ message.action.cancelText }}
+              </button>
+            </div>
+          </template>
+
+          <p
+            v-else-if="message.action.kind === 'after_sales_done'"
+            class="font-medium text-ok"
+          >
+            ✓ {{ message.action.created ? '工单已提交' : '已有工单在跟进' }}
+            <span class="font-mono">{{ message.action.ticketNo }}</span>
+            <span class="ml-1 font-normal text-muted">（{{ message.action.statusLabel }}）</span>
+          </p>
+
+          <p
+            v-else-if="message.action.kind === 'after_sales_rejected'"
+            class="font-medium text-warn"
+          >
+            无法受理 · {{ message.action.typeLabel }}
+            <span class="mt-1 block font-normal text-muted">{{ message.action.message }}</span>
+          </p>
+
+          <p
+            v-else-if="message.action.kind === 'handoff_ticket'"
+            class="font-medium text-ink"
+          >
+            人工工单 <span class="font-mono">{{ message.action.ticketNo }}</span>
+            <span class="ml-1 font-normal text-muted">（{{ message.action.statusLabel }}）</span>
+          </p>
         </div>
 
         <!-- 工具过程：流式期间显示当前动作，结束后折叠成可展开的轨迹 -->

@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 import { api, ApiError } from '@/lib/api'
-import type { ChatMessage, Citation, SlotNotice, ToolTrace } from '@/types/chat'
+import type { ChatMessage, Citation, MessageAction, SlotNotice, ToolTrace } from '@/types/chat'
 import type { MessageDto } from '@/types/api'
 
 /**
@@ -137,6 +137,12 @@ export const useChatStore = defineStore('chat', () => {
         if (citation.index !== undefined) {
           target.citations = [...(target.citations ?? []), citation]
         }
+        return
+      }
+      case 'action': {
+        if (target === null) return
+        const action = data.action as MessageAction | undefined
+        if (action?.kind) target.action = action
         return
       }
       case 'error': {

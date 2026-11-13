@@ -56,6 +56,49 @@ _AFTER_SALES_TYPES = {
     "保修": "repair",
 }
 
+# 待确认动作（写操作前的二次确认）。存 session_states.slots，跨轮生效。
+# 为什么放槽位而不是图状态：图状态每轮从 DB 重建，写操作必须能跨轮"记住要提交什么"。
+PENDING_ACTION = "pending_action"
+
+# 确认/否定词表。判定顺序：先否定再肯定（"不用了谢谢"含"好"字的前缀不该被当确认），
+# 且要求整句很短——"对了我还想问…"这种带转折的长句不能当确认，否则会误建单。
+_CONFIRM_WORDS = (
+    "确认",
+    "确定",
+    "提交",
+    "同意",
+    "没问题",
+    "可以",
+    "行的",
+    "好的",
+    "好",
+    "是",
+    "对",
+    "嗯",
+    "办吧",
+    "帮我办",
+    "就这样",
+)
+_DENY_WORDS = (
+    "取消",
+    "不要",
+    "不用",
+    "不用了",
+    "算了",
+    "不了",
+    "先不",
+    "再想想",
+    "不办",
+    "别",
+    "不行",
+    "不好",
+    "不方便",
+    "暂不",
+)
+# 超过这个长度就不当"确认"处理：确认是一句短话，长句里大概率还有别的事
+_CONFIRM_MAX_CHARS = 8
+_PUNCT = re.compile(r"[\s，。！？、~…,.!?;；:：\"'“”‘’]+")
+
 # 这些槽位变化时前端要提示"已识别…"
 SURFACE_SLOTS = (
     "order_no",
@@ -69,6 +112,24 @@ SURFACE_SLOTS = (
 
 def _yuan_to_cents(text: str) -> int:
     return round(float(text) * 100)
+
+
+def classify_confirmation(text: str) -> str | None:
+    """把一句短话归类为 `confirm` / `deny` / `None`（既不是确认也不是否认）。
+
+    这是写操作的最后一道人机确认：**必须确定性判断**。
+    让模型去理解"用户是不是同意了"，一次误判就是一张真实工单。
+    """
+    cleaned = _PUNCT.sub("", text or "")
+    if not cleaned or len(cleaned) > _CONFIRM_MAX_CHARS:
+        return None
+    if any(word in cleaned for word in _DENY_WORDS):
+        return "deny"
+    if cleaned[0] == "不":
+        return "deny"
+    if any(word in cleaned for word in _CONFIRM_WORDS):
+        return "confirm"
+    return None
 
 
 def extract_rules(text: str, slots: dict[str, Any]) -> dict[str, Any]:
